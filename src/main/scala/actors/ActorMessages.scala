@@ -22,17 +22,35 @@ object AM {
 
   // Peer Wire TCP Protocol
   object BT {
-    sealed case class BTMessage
-    case object KeepAlive extends BTMessage
-    case object Choke extends BTMessage
-    case object Unchoke extends BTMessage
-    case object Interested extends BTMessage
-    case object NotInterested extends BTMessage
-    case object Bitfield extends BTMessage
-    case class Have(index: Int) extends BTMessage
-    case class Request(index: Int, begin: Int, length: Int) extends BTMessage
-    case class Piece(index: Int, begin: Int, block: ByteString) extends BTMessage
-    case class Handshake(infoHash: ByteString, peerId: ByteString)
+
+    sealed trait Message
+    case object KeepAlive extends Message
+    case object Choke extends Message
+    case object Unchoke extends Message
+    case object Interested extends Message
+    case object NotInterested extends Message
+    case object Bitfield extends Message
+    case class Have(index: Int) extends Message
+    case class Request(index: Int, begin: Int, length: Int) extends Message
+    case class Piece(index: Int, begin: Int, block: ByteString) extends Message
+    case class Handshake(infoHash: ByteString, peerId: ByteString) extends Message
+
+    case object Connected
+
+    object Reply {
+
+      sealed trait Reply
+      case object KeepAlive extends Reply
+      case object Choke extends Reply
+      case object Unchoke extends Reply
+      case object Interested extends Reply
+      case object NotInterested extends Reply
+      case object Bitfield extends Reply
+      case class Have(index: Int) extends Reply
+      case class Request(index: Int, begin: Int, length: Int) extends Reply
+      case class Piece(index: Int, begin: Int, block: ByteString) extends Reply
+      case class Handshake(infoHash: ByteString, peerId: ByteString) extends Reply
+    }
   }
 
 }
