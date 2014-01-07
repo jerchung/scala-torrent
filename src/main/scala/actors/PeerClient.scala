@@ -1,6 +1,6 @@
 package org.jerchung.torrent
 
-import AM. { Peer, BT }
+import AM. { PeerM, BT }
 import akka.actor.{ Actor, ActorRef, Props }
 import akka.util.ByteString
 import java.net.InetSocketAddress
@@ -12,8 +12,6 @@ object PeerClient {
 
 // One of these actors per peer
 class PeerClient(peer: Peer, infoHash: ByteString) extends Actor {
-
-  import context.become
 
   val remote = new InetSocketAddress(peer.ip, peer.port)
   val protocol: ActorRef = context.actorOf(TorrentProtocol.props(remote))

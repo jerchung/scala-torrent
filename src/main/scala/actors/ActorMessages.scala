@@ -15,7 +15,7 @@ object AM {
   }
 
   // Peer Client
-  object Peer {
+  object PeerM {
     case object Connected
     case class Reply(msg: ByteString)
   }
