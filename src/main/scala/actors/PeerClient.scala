@@ -23,12 +23,12 @@ class PeerClient(peer: Peer, infoHash: ByteString) extends Actor {
     case BT.Connected =>
       parent ! PeerM.Connected
       protocol ! BT.Handshake(infoHash, peer.id)
-    case BT.Reply.Handshake(infoHash, peerId) =>
+    case BT.HandshakeR(infoHash, peerId) =>
       if (peerId != peer.id) {
         parent ! "Failed peerId matching"
         context stop self
       }
-    case
+    case m: BT.Message => protcol ! m
   }
 
 }
