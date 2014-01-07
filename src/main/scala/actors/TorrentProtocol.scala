@@ -54,22 +54,21 @@ class TorrentProtocol(remote: InetSocketAddress) extends Actor {
   // Handle each type of tcp peer message that client may want to send
   // Create ByteString based off message type and send to tcp connection
   def handleMessage(msg: BT.Message) = {
-    val data = msg match {
-      case BT.KeepAlive => ByteString(0, 0, 0, 0)
-      case BT.Choke => ByteString(0, 0, 0, 1, 0)
-      case BT.Unchoke => ByteString(0, 0, 0, 1, 1)
-      case BT.Interested => ByteString(0, 0, 0, 1, 2)
-      case BT.NotInterested => ByteString(0, 0, 0, 1, 3)
-      case BT.Have(index) => ByteString(0, 0, 0, 5, 4) ++ byteStringify(4, index)
-      case BT.Request(index, begin, length) => ByteString(0, 0, 0, 13, 6)
+    val data: ByteString = msg match {
+      case BT.KeepAlive => Resource.keepAlive
+      case BT.Choke => Resource.choke
+      case BT.Unchoke => Resource.unchoke
+      case BT.Interested => Resource.interested
+      case BT.NotInterested => Resource.notInterested
+      case BT.Have(index) => Resource.have ++ byteStringify(4, index)
+      case BT.Request(index, begin, length) => Resource.request
         ++ byteStringify(4, index, begin, length)
       case BT.Piece(index, begin, block) => ByteString(0, 0, 0, 9 + block.length, 7)
         ++ byteStringify(4, index, begin) ++ block
-      case BT.Cancel(index, begin, length) => ByteString(0, 0, 0, 13, 8)
+      case BT.Cancel(index, begin, length) => Resource.cancel
         ++ byteStringify(4, index, begin, length)
-      case BT.Port(port) => ByteString(0, 0, 0, 3, 9) ++ byteStringify(2, port)
-      case BT.Handshake(info, id) => ByteString(19)
-        ++ ByteString.fromString("BitTorrent protocol") ++ info ++ id
+      case BT.Port(port) => Resource.port ++ byteStringify(2, port)
+      case BT.Handshake(info, id) => Resource.handshake ++ info ++ id
     }
     connection ! Tcp.Write(data)
   }
@@ -81,37 +80,37 @@ class TorrentProtocol(remote: InetSocketAddress) extends Actor {
   def handleReply(data: ByteString) = {
     if (!data.isEmpty) {
       var length: Int = 0
-      var msg: BT.Reply.Reply = _
+      var msg: BT.Reply = _
       if (data.head == 19 && data.slice(1, 20)) {
         length = 68
-        msg = BT.Reply.Handshake(
+        msg = BT.HandshakeR(
           infoHash = data.slice(28, 48),
           peerId = data.sice(48, 68))
       } else {
         length = data.take(4) + 4
         if (length == 4) {
-          msg = BT.KeepAlive
+          msg = BT.KeepAliveR
         } else {
           msg = data(4) match {
-            case 0 => BT.Reply.Choke
-            case 1 => BT.Reply.Unchoke
-            case 2 => BT.Reply.Interested
-            case 3 => BT.Reply.NotInterested
-            case 4 => BT.Reply.Have(data.slice(5, 9))
-            case 5 => BT.Reply.Bitfield
-            case 6 => BT.Reply.Request(
+            case 0 => BT.ChokeR
+            case 1 => BT.UnchokeR
+            case 2 => BT.InterestedR
+            case 3 => BT.NotInterestedR
+            case 4 => BT.HaveR(data.slice(5, 9))
+            case 5 => BT.BitfieldR
+            case 6 => BT.RequestR(
               index = data.slice(5, 9),
               begin = data.slice(9, 13),
               length = data.slice(13, 17))
-            case 7 => BT.Reply.Piece(
+            case 7 => BT.PieceR(
               index = data.slice(5, 9),
               begin = data.slice(9, 13),
               block = data.slice(13, length))
-            case 8 => BT.Reply.Cancel(
+            case 8 => BT.CancelR(
               index = data.slice(5, 9),
               begin = data.slice(9, 13),
               length = data.slice(13, 17))
-            case 9 => BT.Reply.Port(data.slice(5, 7))
+            case 9 => BT.PortR(data.slice(5, 7))
           }
         }
       }
