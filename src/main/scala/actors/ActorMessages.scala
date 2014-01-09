@@ -1,23 +1,26 @@
 package org.jerchung.torrent
 
-// Namespace ActorMessages (AM)
-object AM {
+import akka.actor.ActorRef
+import akka.util.ByteString
+
+// Namespace ActorMessage
+object ActorMessage {
 
   // Tracker Client
-  object Tracker {
+  object TrackerM {
     case class Request(announce: String, request: Map[String, Any])
     case class Response(response: String)
   }
 
-  // Torrent Client
-  object Torrent {
+  // Torrent Client (TorrentM (TorrentMessage))
+  object TorrentM {
     case class Start(filename: String)
+    case class CreatePeer(infoHash: ByteString, peerId: ByteString)
   }
 
   // Peer Client
   object PeerM {
     case object Connected
-    case class Reply(msg: ByteString)
   }
 
   // Peer Wire TCP Protocol
@@ -34,22 +37,28 @@ object AM {
     case class Have(index: Int) extends Message
     case class Request(index: Int, begin: Int, length: Int) extends Message
     case class Piece(index: Int, begin: Int, block: ByteString) extends Message
+    case class Cancel(index: Int, begin: Int, length: Int) extends Message
+    case class Port(port: Int) extends Message
     case class Handshake(infoHash: ByteString, peerId: ByteString) extends Message
+    case class SetListener(actor: ActorRef)
 
     // Messages sent *FROM* TorrentProtocol actor
     sealed trait Reply
+    sealed trait Update
     case object KeepAliveR extends Reply
     case object ChokeR extends Reply
     case object UnchokeR extends Reply
     case object InterestedR extends Reply
     case object NotInterestedR extends Reply
-    case object BitfieldR extends Reply
-    case class HaveR(index: Int) extends Reply
+    case class BitfieldR(bitfield: ByteString) extends Reply with Update
+    case class HaveR(index: Int) extends Reply with Update
     case class RequestR(index: Int, begin: Int, length: Int) extends Reply
     case class PieceR(index: Int, begin: Int, block: ByteString) extends Reply
+    case class CancelR(index: Int, begin: Int, length: Int) extends Reply
+    case class PortR(port: Int) extends Reply
     case class HandshakeR(infoHash: ByteString, peerId: ByteString) extends Reply
-
-    case object Connected
+    case object Connected extends Reply
+    case object InvalidR extends Reply // Invalid ByteString from peer
 
   }
 

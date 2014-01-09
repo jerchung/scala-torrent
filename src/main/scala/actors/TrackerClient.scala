@@ -2,7 +2,9 @@ package org.jerchung.torrent
 
 import dispatch._, Defaults._
 import org.jerchung.bencode.Bencode
+import ActorMessage.{ TrackerM }
 import akka.actor.{Actor, Props}
+import scala.util.{ Success, Failure }
 
 object TrackerClient {
   def props: Props = Props(classOf[TrackerClient])
@@ -11,7 +13,7 @@ object TrackerClient {
 class TrackerClient(val announceUrl: String) extends Actor {
 
   def receive = {
-    case TrackerRequest(a, r) => request(a, r)
+    case TrackerM.Request(a, r) => request(a, r)
   }
 
   // Sends request to tracker, sends response back to sender
@@ -35,8 +37,8 @@ class TrackerClient(val announceUrl: String) extends Actor {
     val resp = Http(req OK as.String)
 
     resp onComplete {
-      case Success(s) => requestor ! TrackerResponse(s)
-      case Failure => self ! new Exception("Tracker http request failed")
+      case Success(s) => requestor ! TrackerM.Response(s)
+      case Failure(e) => self ! new Exception("Tracker http request failed")
     }
   }
 

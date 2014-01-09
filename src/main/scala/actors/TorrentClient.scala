@@ -1,27 +1,31 @@
 package org.jerchung.torrent
 
+import ActorMessage.{ TorrentM, TrackerM }
 import akka.actor.{Actor, ActorRef, Props}
+import akka.util.ByteString
+import java.net.URLEncoder
 import org.jerchung.bencode.Bencode
 import org.jerchung.bencode.Conversions._
-import java.net.URLEncoder
+import scala.util.Random
 
 // This actor takes care of the downloading of a *single* torrent
 
-case class Peer(ip: String, port: Int, id: String = "")
+case class Peer(ip: String, port: Int, id: ByteString = ByteString())
 
 class TorrentClient(peerId: String) extends Actor {
 
-  // Spawn needed actors
-  val trackerClient = context.actorOf[TrackerClient.props]
-  val peerClient = context.actorOf[PeerClient.props]
+  // Spawn needed actor(s)
+  val trackerClient = context.actorOf(TrackerClient.props)
+  val server = context.actorOf(PeerListener.props)
 
   def receive = {
-    case StartTorrent(t) => startTorrent(t)
-    case TrackerResponse(r) => connectPeers(r)
+    case TorrentM.Start(t) => startTorrent(t)
+    case TorrentM.CreatePeer(infoHash, peerId) => createPeer(infoHash, peerId)
+    case TrackerM.Response(r) => connectPeers(r)
   }
 
   def startTorrent(fileName: String): Unit = {
-    val torrent = Torrent.fromFile(filename)
+    val torrent = Torrent.fromFile(fileName)
     val request = Map[String, Any](
       "info_hash" -> urlEncode(torrent.infoHash),
       "peer_id" -> urlEncode(peerId),
@@ -34,12 +38,18 @@ class TorrentClient(peerId: String) extends Actor {
       )
 
     // Will get TrackerResponse back
-    trackerClient ! TrackerRequest(torrent.announce, request)
+    trackerClient ! TrackerM.Request(torrent.announce, request)
+  }
+
+  def createPeer(infoHash: ByteString, peerId: ByteString): Unit = {
+    val peer = context.actorOf(PeerClient.props(peerId, infoHash, None, None))
+    sender ! peer
   }
 
   // Create a peer actor per peer and start the download
   def connectPeers(response: String): Unit = {
-    val resp: Map[String, Any] = Bencode.decode(response.map(_.toByte).toIterator.buffered)
+    val resp = Bencode.decode(response.map(_.toByte).toIterator.buffered)
+      .asInstanceOf[Map[String, Any]]
     if (resp contains "failure reason") {
       throw new Exception("Tracker response bad")
     }
@@ -54,19 +64,19 @@ class TorrentClient(peerId: String) extends Actor {
           id = p("peer id").asInstanceOf[ByteString]
         )
       }
-      case prs: ByteString => Peer.listFromCompact(prs)
+      // case prs: ByteString => peerlistFromCompact(prs)
     }
 
   }
 
   def validTorrentPort: Int = {
-    new Random.nextInt(6889 - 6881 + 1) + 6881
+    (new Random).nextInt(6889 - 6881 + 1) + 6881
   }
 
   def urlEncode(s: String): String = URLEncoder.encode(s, "UTF-8")
 
   // https://wiki.theory.org/BitTorrentSpecification#Tracker_Response
-  def peerListFromCompact(peers: ByteString): List[Peer] = {
+  /*def peerListFromCompact(peers: ByteString): List[Peer] = {
     for {
       peersGrouped <- peers.grouped(6)
       peer <- peersGrouped
@@ -75,6 +85,6 @@ class TorrentClient(peerId: String) extends Actor {
       val port = peer.slice(4, 6)
       Peer()
     }
-  }
+  }*/
 
 }

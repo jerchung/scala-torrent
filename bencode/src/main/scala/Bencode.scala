@@ -4,11 +4,16 @@ import scala.io.Source
 
 object Bencode {
 
-  val decoder = new Decoder
+  lazy val decoder = new Decoder
+  lazy val encoder = new Encoder
 
   // Takes in parsed torrent file in iterator[byte] form
   def decode(input: BufferedIterator[Byte]): Map[String, Any] = {
     decoder.decode(input).asInstanceOf[Map[String, Any]]
+  }
+
+  def encode(input: Any): String = {
+    encoder.encode(input)
   }
 
   // For test purposes
