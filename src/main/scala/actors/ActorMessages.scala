@@ -15,12 +15,13 @@ object ActorMessage {
   // Torrent Client (TorrentM (TorrentMessage))
   object TorrentM {
     case class Start(filename: String)
-    case class CreatePeer(infoHash: ByteString, peerId: ByteString)
+    case class GetPeer(infoHash: ByteString, peerId: ByteString, connection: ActorRef)
   }
 
   // Peer Client
   object PeerM {
     case object Connected
+    case object Handshake
   }
 
   // Peer Wire TCP Protocol
@@ -40,7 +41,7 @@ object ActorMessage {
     case class Cancel(index: Int, begin: Int, length: Int) extends Message
     case class Port(port: Int) extends Message
     case class Handshake(infoHash: ByteString, peerId: ByteString) extends Message
-    case class SetListener(actor: ActorRef)
+    case class Listener(actor: ActorRef)
 
     // Messages sent *FROM* TorrentProtocol actor
     sealed trait Reply

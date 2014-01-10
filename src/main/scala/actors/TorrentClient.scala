@@ -2,17 +2,27 @@ package org.jerchung.torrent
 
 import ActorMessage.{ TorrentM, TrackerM }
 import akka.actor.{Actor, ActorRef, Props}
+import akka.io.{ IO, Tcp }
+import akka.pattern.ask
 import akka.util.ByteString
+import akka.util.Timeout
+import java.net.InetSocketAddress
 import java.net.URLEncoder
 import org.jerchung.bencode.Bencode
 import org.jerchung.bencode.Conversions._
+import scala.concurrent.duration._
 import scala.util.Random
 
 // This actor takes care of the downloading of a *single* torrent
 
 case class Peer(ip: String, port: Int, id: ByteString = ByteString())
 
-class TorrentClient(peerId: String) extends Actor {
+class TorrentClient(peerId: String, fileName: String) extends Actor {
+
+  implicit val timeout = Timeout(5 seconds)
+
+  // Get that torrent file
+  val torrent = Torrent.fromFile(fileName)
 
   // Spawn needed actor(s)
   val trackerClient = context.actorOf(TrackerClient.props)
@@ -20,12 +30,12 @@ class TorrentClient(peerId: String) extends Actor {
 
   def receive = {
     case TorrentM.Start(t) => startTorrent(t)
-    case TorrentM.CreatePeer(infoHash, peerId) => createPeer(infoHash, peerId)
+    case p: Props => sender ! context.actorOf(p)
+    case TorrentM.GetPeer(infoHash, peerId, connection) => getPeer(infoHash, peerId, connection)
     case TrackerM.Response(r) => connectPeers(r)
   }
 
   def startTorrent(fileName: String): Unit = {
-    val torrent = Torrent.fromFile(fileName)
     val request = Map[String, Any](
       "info_hash" -> urlEncode(torrent.infoHash),
       "peer_id" -> urlEncode(peerId),
@@ -41,12 +51,17 @@ class TorrentClient(peerId: String) extends Actor {
     trackerClient ! TrackerM.Request(torrent.announce, request)
   }
 
-  def createPeer(infoHash: ByteString, peerId: ByteString): Unit = {
-    val peer = context.actorOf(PeerClient.props(peerId, infoHash, None, None))
+  def createPeer(connection: ActorRef): Unit = {
+    val peer = context.actorOf(PeerClient.props(peerId, torrent.infoHash, connection, true))
     sender ! peer
   }
 
+  def createIntermediatePeer(connection: ActorRef): Unit = {
+    sender ! context.actorOf()
+  }
+
   // Create a peer actor per peer and start the download
+  // ByteString is implicity converted to Int
   def connectPeers(response: String): Unit = {
     val resp = Bencode.decode(response.map(_.toByte).toIterator.buffered)
       .asInstanceOf[Map[String, Any]]
@@ -66,6 +81,22 @@ class TorrentClient(peerId: String) extends Actor {
       }
       // case prs: ByteString => peerlistFromCompact(prs)
     }
+    peers foreach { peer =>
+      val remote = new InetSocketAddress(peer.ip, peer.port)
+      val connectionF = IO(Tcp) ? Tcp.Connect(remote)
+      connectionF map {
+        case Tcp.Conected(remote, local) =>
+          val connection = sender
+          val protocol =
+          val peerActor = context.actorOf(PeerClient.props(
+            peerId, torrent.infoHash, connection))
+          peerActor ! BT.Handshake(infoHash, peerId)
+      }
+    }
+
+  }
+
+  def connectedPeer: Unit = {
 
   }
 

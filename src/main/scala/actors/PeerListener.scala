@@ -26,19 +26,31 @@ class PeerListener extends Actor {
     case b @ Tcp.Bound(localAddress) => // Implement logging later
     case Tcp.CommandFailed(_: Tcp.Bind) => // Binding failed
     case Tcp.Connected(remote, local) =>
-      val protocol = context.actorOf(TorrentProtocol.props(sender, self))
-      sender ! Tcp.Register(protocol)
-      context become {
-        case m: Tcp.Connected => self ! m // Need to wait for a handshake
-        case BT.HandshakeR(infoHash, peerId) =>
-          val peerF = (parent ? TorrentM.CreatePeer(infoHash, peerId)).mapTo[ActorRef]
-          for {
-            peer <- peerF
-            done <- protocol ? BT.SetListener(peer)
-          } yield {
-            peer ! BT.Handshake(infoHash, peerId)
-          }
-          become(receive)
+      val connection = sender
+      val protocol = context.actorOf(TorrentProtocol.props(connection))
+      for {
+        waiter <- (parent ? WaitForHandshake.props(protocol)).mapTo[ActorRef]
+      } yield {
+        protocol ! BT.Listener(waiter)
+      }
+  }
+
+}
+
+object WaitForHandshake {
+  def props(protocol: ActorRef): Props = Props(classOf[WaitForHandshake], protocol)
+}
+
+/* Parent must be TorrentClient */
+class WaitForHandshake(protocol: ActorRef) extends Actor {
+
+  def receive = {
+    case BT.HandshakeR(infoHash, peerId) =>
+      for {
+        peer <- (parent ? PeerClient.props(infoHash, peerId, protocol)).mapTo[ActorRef]
+        listenerSet <- protocol ? BT.Listener(peer)
+      } yield {
+        peer ! TorrentM.Handshake
       }
   }
 

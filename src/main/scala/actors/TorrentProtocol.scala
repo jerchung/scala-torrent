@@ -1,15 +1,15 @@
 package org.jerchung.torrent
 
 import ActorMessage.{ PeerM, BT }
-import akka.actor.{ Actor, ActorRef, Props }
+import akka.actor.{ Actor, ActorRef, Props, PoisonPill }
 import akka.io.Tcp
 import akka.util.ByteString
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 
 object TorrentProtocol {
-  def props(connection: ActorRef, listener: ActorRef) =
-    Props(classOf[TorrentProtocol], connection, listener)
+  def props(connection: ActorRef) =
+    Props(classOf[TorrentProtocol], connection)
 
   // ByteString prefix of peer messages which stay constant
   lazy val keepAlive = ByteString(0, 0, 0, 0)
@@ -26,12 +26,12 @@ object TorrentProtocol {
 
 }
 
-class TorrentProtocol(connection: ActorRef, var listener: ActorRef) extends Actor {
+class TorrentProtocol(connection: ActorRef) extends Actor {
 
-  import context.{ become, system }
+  var listener: ActorRef = _
 
-  connection ! Tcp.Register(self)
-
+  // Implicitly convert to Int when taking slices of a ByteString response and
+  // parsing it to a TCP BitTorrent Exchange message
   implicit def ByteStringToInt(data: ByteString): Int = {
     ByteBuffer.wrap(data.toArray).getInt
   }
@@ -49,11 +49,19 @@ class TorrentProtocol(connection: ActorRef, var listener: ActorRef) extends Acto
   }
 
   def receive = {
+    case BT.Listener(actor) =>
+      connection ! Tcp.Register(self)
+      listener = actor
+      context.become(listened)
+      sender ! true
+  }
+
+  def listened: Receive = {
     case msg: BT.Message => handleMessage(msg)
     case Tcp.Received(data) => handleReply(data)
-    case BT.SetListener(actor) =>
+    case BT.Listener(actor) =>
       listener = actor
-      sender ! true // ACK
+      sender ! true
   }
 
   // Handle each type of tcp peer message that client may want to send

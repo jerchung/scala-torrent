@@ -4,22 +4,20 @@ import ActorMessage.{ PeerM, BT }
 import akka.actor.{ Actor, ActorRef, Props }
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
-import java.net.InetSocketAddress
 import scala.concurrent.duration._
 
 object PeerClient {
-  def props(peerId: ByteString, infoHash: ByteString,
-      remote: Option[InetSocketAddress] = None, connection: Option[ActorRef] = None) = {
-    Props(classOf[PeerClient], infoHash, connection, remote, connection)
+  def props(peerId: ByteString, infoHash: ByteString, protocol: ActorRef) = {
+    Props(classOf[PeerClient], peerId, infoHash)
   }
 }
 
 // One of these actors per peer
+/* Parent must be Torrent Client */
 class PeerClient(
     peerId: ByteString,
     infoHash: ByteString,
-    remote: Option[InetSocketAddress],
-    connection: Option[ActorRef]) extends Actor {
+    protocol: ActorRef) extends Actor {
 
   import context.{ system, become, parent, dispatcher }
 
@@ -29,28 +27,16 @@ class PeerClient(
   var amChoking, peerChoking = true
   var amInterested, peerInterested = false
   val availablePieces = Array.fill[Byte](numPieces)(0)
-  var protocol: ActorRef = connection match {
-    case Some(c) => c
-    case None => null.asInstanceOf[ActorRef]
-  }
 
-  remote match {
-    case Some(a) => IO(Tcp) ! Tcp.Connect(a)
-    case None => become(connected)
-  }
-
-  def receive = {
-    case Tcp.CommandFailed(_: Tcp.Connect) =>
-      parent ! "Failed to connect"
-      context stop self
-    case Tcp.Connected(remote, local) =>
-      protocol = context.actorOf(TorrentProtocol.props(sender, self))
-      parent ! PeerM.Connected
-      protocol ! BT.Handshake(infoHash, peerId)
+  /*def receive = {
+    case BT.Protocol(actor) =>
+      protocol = actor
       become(connected)
-  }
+      sender ! true
+  }*/
 
-  def connected: Receive = {
+  def receive: Receive = {
+    case PeerM.Handshake => protocol ! BT.Handshake(infoHash, peerId)
     case m: BT.Message => protocol ! m
     case r: BT.Reply => handleReply(r)
   }
@@ -64,6 +50,8 @@ class PeerClient(
       case BT.NotInterestedR => peerInterested = false
       case u: BT.Update => updateAvailable(u)
       case BT.RequestR(index, begin, length) =>
+      case BT.HandshakeR(peerHash, otherPeerId) =>
+        if (replyingHandshake) {  }
     }
     immediatePostHandshake = false
   }
