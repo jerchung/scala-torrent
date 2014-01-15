@@ -8,12 +8,12 @@ import akka.util.Timeout
 import java.net.InetSocketAddress
 import scala.concurrent.duration._
 
-object PeerListener {
-  def props: Props = { Props(classOf[PeerListener]) }
+object PeerServer {
+  def props(id: ByteString): Props = { Props(classOf[PeerServer], id) }
 }
 
 // Listen for new connections made from peers
-class PeerListener extends Actor {
+class PeerServer(id: ByteString) extends Actor {
 
   import context.{ system, become, parent, dispatcher }
 
@@ -28,11 +28,8 @@ class PeerListener extends Actor {
     case Tcp.Connected(remote, local) =>
       val connection = sender
       val protocol = context.actorOf(TorrentProtocol.props(connection))
-      for {
-        waiter <- (parent ? WaitForHandshake.props(protocol)).mapTo[ActorRef]
-      } yield {
-        protocol ! BT.Listener(waiter)
-      }
+      val waiterF = (parent ? WaitForHandshake.props(protocol)).mapTo[ActorRef]
+      waiterF onSuccess { case waiter => protocol ! BT.Listener(waiterF)}
   }
 
 }
@@ -47,7 +44,7 @@ class WaitForHandshake(protocol: ActorRef) extends Actor {
   def receive = {
     case BT.HandshakeR(infoHash, peerId) =>
       for {
-        peer <- (parent ? PeerClient.props(infoHash, peerId, protocol)).mapTo[ActorRef]
+        peer <- (parent ? PeerClient.props(Peer(peerId, id, infoHash), protocol)).mapTo[ActorRef]
         listenerSet <- protocol ? BT.Listener(peer)
       } yield {
         peer ! TorrentM.Handshake

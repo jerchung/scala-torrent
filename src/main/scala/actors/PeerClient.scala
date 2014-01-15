@@ -7,36 +7,31 @@ import akka.util.ByteString
 import scala.concurrent.duration._
 
 object PeerClient {
-  def props(peerId: ByteString, infoHash: ByteString, protocol: ActorRef) = {
-    Props(classOf[PeerClient], peerId, infoHash)
+  def props(peer: Peer, ownAvailable: Array[Byte], protocol: ActorRef) = {
+    Props(classOf[PeerClient], peer, ownAvailable, infoHash)
   }
 }
 
 // One of these actors per peer
 /* Parent must be Torrent Client */
-class PeerClient(
-    peerId: ByteString,
-    infoHash: ByteString,
-    protocol: ActorRef) extends Actor {
+class PeerClient(peer: Peer, protocol: ActorRef) extends Actor {
 
   import context.{ system, become, parent, dispatcher }
 
-  // Need to keep state
+  val peerId = peer.peerId
+  val ownId = peer.ownId
+  val infoHash = peer.infoHash
+  val ownAvailable = peer.ownAvailable
+  val peerAvailable = Array.fill[Byte](numPieces)(0)
+
+  // Need to keep mutable state
   var keepAlive = false
   var immediatePostHandshake = true
   var amChoking, peerChoking = true
   var amInterested, peerInterested = false
-  val availablePieces = Array.fill[Byte](numPieces)(0)
-
-  /*def receive = {
-    case BT.Protocol(actor) =>
-      protocol = actor
-      become(connected)
-      sender ! true
-  }*/
 
   def receive: Receive = {
-    case PeerM.Handshake => protocol ! BT.Handshake(infoHash, peerId)
+    case PeerM.Handshake => protocol ! BT.Handshake(infoHash, ownId)
     case m: BT.Message => protocol ! m
     case r: BT.Reply => handleReply(r)
   }
@@ -48,18 +43,24 @@ class PeerClient(
       case BT.UnchokeR => peerChoking = false
       case BT.InterestedR => peerInterested = true
       case BT.NotInterestedR => peerInterested = false
-      case u: BT.Update => updateAvailable(u)
+      case u: BT.Update => updatePieces(u)
       case BT.RequestR(index, begin, length) =>
-      case BT.HandshakeR(peerHash, otherPeerId) =>
-        if (replyingHandshake) {  }
+      case BT.HandshakeR(infoHash, peerId) =>
+        if (infoHash != this.infoHash || peerId != this.peerId) {
+          parent ! "Invalid"
+          context stop self
+        } else {
+
+        }
+
     }
     immediatePostHandshake = false
   }
 
-  def updateAvailable(update: BT.Update): Unit = {
+  def updatePieces(update: BT.Update): Unit = {
     update match {
-      case BT.BitfieldR(bitfield) => availablePieces = bitfield.toArray
-      case BT.HaveR(index) => availablePieces(index) = 1
+      case BT.BitfieldR(bitfield) => peerAvailable = bitfield.toArray
+      case BT.HaveR(index) => peerAvailable(index) = 1
     }
   }
 

@@ -47,6 +47,8 @@ class Torrent(
 
   val infoBytes: Array[Byte] = Bencode.encode(info).getBytes
   val infoHash = ByteString.fromArray(sha1(infoBytes))
+  val pieces = info("pieces").asInstanceOf[ByteString]
+  val pieceLength = info("pieces length").asInstanceOf[Int]
   val fileMode: FileMode = if (info contains "files") Multiple else Single
   val name = info("name").asInstanceOf[String]
   val files: List[TorrentFile] = fileMode match {

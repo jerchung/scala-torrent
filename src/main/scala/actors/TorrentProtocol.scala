@@ -28,6 +28,8 @@ object TorrentProtocol {
 
 class TorrentProtocol(connection: ActorRef) extends Actor {
 
+  connection ! Tcp.Register(self)
+
   var listener: ActorRef = _
 
   // Implicitly convert to Int when taking slices of a ByteString response and
@@ -37,7 +39,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   }
 
   // Take in an int and the # of bytes it should contain, return the
-  // corresponding ByteString
+  // corresponding ByteString of the int with appropriate leading 0s
   // Works for multiple nums of the same size
   def byteStringify(size: Int, nums: Int*): ByteString = {
     val byteStrings = nums map { n =>
@@ -54,6 +56,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
       listener = actor
       context.become(listened)
       sender ! true
+    case _ => sender ! "Need to set listener first"
   }
 
   def listened: Receive = {

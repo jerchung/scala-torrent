@@ -17,7 +17,7 @@ class Encoder {
   def encodeInt(value: Int): String = s"i${value}e"
 
   def encodeString(value: ByteString): String =
-    s"""${value.length}:${value.decodeString("UTF-8")}"""
+    s"""${value.length}:${value.decodeString("ISO-8859-1")}"""
 
   // Map keys must be in alphabetical order
   def encodeMap(value: Map[String, Any]): String =

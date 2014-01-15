@@ -13,11 +13,11 @@ import org.jerchung.bencode.Conversions._
 import scala.concurrent.duration._
 import scala.util.Random
 
+// This case class encapsulates the information needed to create a peer actor
+case class Peer(peerId: ByteString, ownId: ByteString, infoHash: ByteString)
+
 // This actor takes care of the downloading of a *single* torrent
-
-case class Peer(ip: String, port: Int, id: ByteString = ByteString())
-
-class TorrentClient(peerId: String, fileName: String) extends Actor {
+class TorrentClient(id: String, fileName: String) extends Actor {
 
   implicit val timeout = Timeout(5 seconds)
 
@@ -26,12 +26,14 @@ class TorrentClient(peerId: String, fileName: String) extends Actor {
 
   // Spawn needed actor(s)
   val trackerClient = context.actorOf(TrackerClient.props)
-  val server = context.actorOf(PeerListener.props)
+  val server = context.actorOf(PeerServer.props(id))
+
+  // This array holds which pieces have been downloaded - starts at 0
+  val available = Array.fill[Byte](torrent.pieces.length / 20)(0)
 
   def receive = {
+    case p: Props => sender ! context.actorOf(p) // Actor creation
     case TorrentM.Start(t) => startTorrent(t)
-    case p: Props => sender ! context.actorOf(p)
-    case TorrentM.GetPeer(infoHash, peerId, connection) => getPeer(infoHash, peerId, connection)
     case TrackerM.Response(r) => connectPeers(r)
   }
 
@@ -47,17 +49,8 @@ class TorrentClient(peerId: String, fileName: String) extends Actor {
       // Add other params later
       )
 
-    // Will get TrackerResponse back
+    // Will get TrackerM.Response back
     trackerClient ! TrackerM.Request(torrent.announce, request)
-  }
-
-  def createPeer(connection: ActorRef): Unit = {
-    val peer = context.actorOf(PeerClient.props(peerId, torrent.infoHash, connection, true))
-    sender ! peer
-  }
-
-  def createIntermediatePeer(connection: ActorRef): Unit = {
-    sender ! context.actorOf()
   }
 
   // Create a peer actor per peer and start the download
@@ -100,6 +93,7 @@ class TorrentClient(peerId: String, fileName: String) extends Actor {
 
   }
 
+  // Get valid int between 6881 to 6889 inclusive
   def validTorrentPort: Int = {
     (new Random).nextInt(6889 - 6881 + 1) + 6881
   }
