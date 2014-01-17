@@ -28,14 +28,16 @@ object TorrentProtocol {
 
 class TorrentProtocol(connection: ActorRef) extends Actor {
 
-  connection ! Tcp.Register(self)
-
   var listener: ActorRef = _
 
   // Implicitly convert to Int when taking slices of a ByteString response and
   // parsing it to a TCP BitTorrent Exchange message
   implicit def ByteStringToInt(data: ByteString): Int = {
     ByteBuffer.wrap(data.toArray).getInt
+  }
+
+  implicit def ByteStringToLong(data: ByteString): Long = {
+    ByteBuffer.wrap(data.toArray).getLong
   }
 
   // Take in an int and the # of bytes it should contain, return the

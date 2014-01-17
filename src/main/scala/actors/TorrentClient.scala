@@ -10,11 +10,12 @@ import java.net.InetSocketAddress
 import java.net.URLEncoder
 import org.jerchung.bencode.Bencode
 import org.jerchung.bencode.Conversions._
+import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.util.Random
 
 // This case class encapsulates the information needed to create a peer actor
-case class Peer(peerId: ByteString, ownId: ByteString, infoHash: ByteString)
+case class Peer(peerId: ByteString, ownId: ByteString, infoHash: ByteString, ownAvailable: mutable.Bitset)
 
 // This actor takes care of the downloading of a *single* torrent
 class TorrentClient(id: String, fileName: String) extends Actor {
@@ -28,8 +29,8 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   val trackerClient = context.actorOf(TrackerClient.props)
   val server = context.actorOf(PeerServer.props(id))
 
-  // This array holds which pieces have been downloaded - starts at 0
-  val available = Array.fill[Byte](torrent.pieces.length / 20)(0)
+  // This bitset holds which pieces have been downloaded - starts at 0
+  val have = mutable.BitSet.empty
 
   def receive = {
     case p: Props => sender ! context.actorOf(p) // Actor creation
@@ -94,6 +95,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   }
 
   // Get valid int between 6881 to 6889 inclusive
+  // TODO - Actually get available port
   def validTorrentPort: Int = {
     (new Random).nextInt(6889 - 6881 + 1) + 6881
   }

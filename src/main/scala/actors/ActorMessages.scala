@@ -51,7 +51,7 @@ object ActorMessage {
     case object UnchokeR extends Reply
     case object InterestedR extends Reply
     case object NotInterestedR extends Reply
-    case class BitfieldR(bitfield: ByteString) extends Reply with Update
+    case class BitfieldR(bitfield: Long) extends Reply with Update
     case class HaveR(index: Int) extends Reply with Update
     case class RequestR(index: Int, begin: Int, length: Int) extends Reply
     case class PieceR(index: Int, begin: Int, block: ByteString) extends Reply

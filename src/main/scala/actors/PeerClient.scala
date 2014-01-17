@@ -4,6 +4,7 @@ import ActorMessage.{ PeerM, BT }
 import akka.actor.{ Actor, ActorRef, Props }
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
+import scala.collection.immutable.BitSet
 import scala.concurrent.duration._
 
 object PeerClient {
@@ -21,8 +22,8 @@ class PeerClient(peer: Peer, protocol: ActorRef) extends Actor {
   val peerId = peer.peerId
   val ownId = peer.ownId
   val infoHash = peer.infoHash
-  val ownAvailable = peer.ownAvailable
-  val peerAvailable = Array.fill[Byte](numPieces)(0)
+  val ownAvailable = peer.ownAvailable // This is MUTABLE
+  var peerAvailable = BitSet.empty
 
   // Need to keep mutable state
   var keepAlive = false
@@ -36,14 +37,15 @@ class PeerClient(peer: Peer, protocol: ActorRef) extends Actor {
     case r: BT.Reply => handleReply(r)
   }
 
-  def handleReply(reply: BT.Reply) = {
+  def handleReply(reply: BT.Reply): Unit = {
     reply match {
       case BT.KeepAliveR => keepAlive = true
       case BT.ChokeR => peerChoking = true
       case BT.UnchokeR => peerChoking = false
       case BT.InterestedR => peerInterested = true
       case BT.NotInterestedR => peerInterested = false
-      case u: BT.Update => updatePieces(u)
+      case BT.BitfieldR(bitfield) => peerAvailable |= BitSet.fromBitMask(Array(bitfield))
+      case BT.HaveR(index) => peerAvailable |= BitSet(index)
       case BT.RequestR(index, begin, length) =>
       case BT.HandshakeR(infoHash, peerId) =>
         if (infoHash != this.infoHash || peerId != this.peerId) {
@@ -52,16 +54,8 @@ class PeerClient(peer: Peer, protocol: ActorRef) extends Actor {
         } else {
 
         }
-
     }
     immediatePostHandshake = false
-  }
-
-  def updatePieces(update: BT.Update): Unit = {
-    update match {
-      case BT.BitfieldR(bitfield) => peerAvailable = bitfield.toArray
-      case BT.HaveR(index) => peerAvailable(index) = 1
-    }
   }
 
   // Start off the scheduler to send keep-alive signals every 2 minutes and to

@@ -29,7 +29,7 @@ class PeerServer(id: ByteString) extends Actor {
       val connection = sender
       val protocol = context.actorOf(TorrentProtocol.props(connection))
       val waiterF = (parent ? WaitForHandshake.props(protocol)).mapTo[ActorRef]
-      waiterF onSuccess { case waiter => protocol ! BT.Listener(waiterF)}
+      waiterF onSuccess { case waiter => protocol ! BT.Listener(waiterF) }
   }
 
 }
