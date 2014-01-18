@@ -2,6 +2,7 @@ package org.jerchung.torrent.actor
 
 import akka.actor.ActorRef
 import akka.util.ByteString
+import scala.collection.immutable.BitSet
 
 // Namespace ActorMessage
 object ActorMessage {
@@ -16,6 +17,8 @@ object ActorMessage {
   object TorrentM {
     case class Start(filename: String)
     case class GetPeer(infoHash: ByteString, peerId: ByteString, connection: ActorRef)
+    case class Available(update: Either[Int, BitSet])
+    case class Unavailable(remove: Either[Int, BitSet])
   }
 
   // Peer Client
@@ -45,14 +48,14 @@ object ActorMessage {
 
     // Messages sent *FROM* TorrentProtocol actor
     sealed trait Reply
-    sealed trait Update
+    sealed trait UpdateR
     case object KeepAliveR extends Reply
     case object ChokeR extends Reply
     case object UnchokeR extends Reply
     case object InterestedR extends Reply
     case object NotInterestedR extends Reply
-    case class BitfieldR(bitfield: Long) extends Reply with Update
-    case class HaveR(index: Int) extends Reply with Update
+    case class BitfieldR(bitfield: Long) extends Reply with UpdateR
+    case class HaveR(index: Int) extends Reply with UpdateR
     case class RequestR(index: Int, begin: Int, length: Int) extends Reply
     case class PieceR(index: Int, begin: Int, block: ByteString) extends Reply
     case class CancelR(index: Int, begin: Int, length: Int) extends Reply

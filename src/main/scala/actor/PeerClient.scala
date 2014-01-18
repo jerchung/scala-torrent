@@ -9,27 +9,27 @@ import scala.collection.mutable
 import scala.concurrent.duration._
 
 object PeerClient {
-  def props(peer: Peer, protocol: ActorRef, replying: Boolean) = {
-    Props(classOf[PeerClient], peer, protocol, replying)
+  def props(peer: Peer, protocol: ActorRef, blockWriter: ActorRef, replying: Boolean) = {
+    Props(classOf[PeerClient], peer, protocol, blockWriter, replying)
   }
 }
 
 // One of these actors per peer
 /* Parent must be Torrent Client */
-class PeerClient(peer: Peer, protocol: ActorRef, replying: Boolean) extends Actor {
+class PeerClient(info: Peer, protocol: ActorRef, blockWriter: ActorRef replying: Boolean) extends Actor {
 
   import context.{ system, become, parent, dispatcher }
 
-  val peerId: ByteString = peer.peerId
-  val ownId: ByteString = peer.ownId
-  val infoHash: ByteString = peer.infoHash
-  val ownAvailable: mutable.BitSet = peer.ownAvailable
-  var peerAvailable = BitSet.empty
+  val peerId: ByteString   = info.peerId
+  val ownId: ByteString    = info.ownId
+  val infoHash: ByteString = info.infoHash
+  var iHave: BitSet        = info.ownAvailable
+  var peerHas: BitSet      = BitSet.empty
 
   // Need to keep mutable state
-  var keepAlive = false
-  var immediatePostHandshake = true
-  var amChoking, peerChoking = true
+  var keepAlive                    = false
+  var immediatePostHandshake       = true
+  var amChoking, peerChoking       = true
   var amInterested, peerInterested = false
 
   override def preStart(): Unit = (
@@ -39,10 +39,16 @@ class PeerClient(peer: Peer, protocol: ActorRef, replying: Boolean) extends Acto
     }
   )
 
-  def receive: Receive = {
+  def receive = {
     case PeerM.Handshake => protocol ! BT.Handshake(infoHash, ownId)
-    case m: BT.Message => protocol ! m
-    case r: BT.Reply => handleReply(r)
+    case m: BT.Message   =>
+      m match {
+        case BT.Have(index)        => iHave += index
+        case BT.Bitfield(bitfield) => iHave = bitfield
+        case _                     =>
+      }
+      protocol ! m
+    case r: BT.Reply     => handleReply(r)
   }
 
   def handleReply(reply: BT.Reply): Unit = {
@@ -52,8 +58,7 @@ class PeerClient(peer: Peer, protocol: ActorRef, replying: Boolean) extends Acto
       case BT.UnchokeR => peerChoking = false
       case BT.InterestedR => peerInterested = true
       case BT.NotInterestedR => peerInterested = false
-      case BT.BitfieldR(bitfield) => peerAvailable |= BitSet.fromBitMask(Array(bitfield))
-      case BT.HaveR(index) => peerAvailable |= BitSet(index)
+      case update: BT.UpdateR => updatePeerAvailable(msg)
       case BT.RequestR(index, begin, length) =>
       case BT.HandshakeR(infoHash, peerId) =>
         if (infoHash != this.infoHash || peerId != this.peerId) {
@@ -64,6 +69,17 @@ class PeerClient(peer: Peer, protocol: ActorRef, replying: Boolean) extends Acto
         }
     }
     immediatePostHandshake = false
+  }
+
+  def updatePeerAvailable(msg: BT.UpdateR): Unit = {
+    msg match {
+      case BT.BitfieldR(bitfield) =>
+        peerHas |= BitSet.fromBitMask(Array(bitfield))
+        parent ! Available(Right(peerHas))
+      case BT.HaveR(index) =>
+        peerHas |= BitSet(index)
+        parent ! Available(Left(index))
+    }
   }
 
   // Start off the scheduler to send keep-alive signals every 2 minutes and to

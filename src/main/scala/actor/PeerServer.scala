@@ -9,11 +9,11 @@ import java.net.InetSocketAddress
 import scala.concurrent.duration._
 
 object PeerServer {
-  def props(manager: ActorRef): Props = { Props(classOf[PeerServer], manager) }
+  def props: Props = { Props(classOf[PeerServer]) }
 }
 
 // Listen for new connections made from peers
-class PeerServer(manager: ActorRef) extends Actor {
+class PeerServer extends Actor {
 
   import context.{ system, become, parent, dispatcher }
 
@@ -28,7 +28,7 @@ class PeerServer(manager: ActorRef) extends Actor {
     case Tcp.Connected(remote, local) =>
       val connection = sender
       val protocol = context.actorOf(TorrentProtocol.props(connection))
-      manager ! WaitForHandshake.props(protocol)
+      parent ! WaitForHandshake.props(protocol)
   }
 
 }
@@ -47,7 +47,7 @@ class WaitForHandshake(protocol: ActorRef) extends Actor {
 
   def receive = {
     case BT.HandshakeR(infoHash, peerId) =>
-      manager ! PeerClient.props(Peer(peerId, id, infoHash), protocol)
+      parent ! PeerClient.props(Peer(peerId, id, infoHash), protocol)
   }
 
 }

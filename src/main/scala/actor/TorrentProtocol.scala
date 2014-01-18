@@ -74,20 +74,25 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   // TODO - BITFIELD
   def handleMessage(msg: BT.Message) = {
     val data: ByteString = msg match {
-      case BT.KeepAlive => TorrentProtocol.keepAlive
-      case BT.Choke => TorrentProtocol.choke
-      case BT.Unchoke => TorrentProtocol.unchoke
-      case BT.Interested => TorrentProtocol.interested
-      case BT.NotInterested => TorrentProtocol.notInterested
-      case BT.Have(index) => TorrentProtocol.have ++ byteStringify(4, index)
+      case BT.KeepAlive                     => TorrentProtocol.keepAlive
+      case BT.Choke                         => TorrentProtocol.choke
+      case BT.Unchoke                       => TorrentProtocol.unchoke
+      case BT.Interested                    => TorrentProtocol.interested
+      case BT.NotInterested                 => TorrentProtocol.notInterested
+      case BT.Have(index)                   => TorrentProtocol.have ++
+                                               byteStringify(4, index)
       case BT.Request(index, begin, length) => TorrentProtocol.request ++
-        byteStringify(4, index, begin, length)
-      case BT.Piece(index, begin, block) => ByteString(0, 0, 0, 9 + block.length, 7) ++
-        byteStringify(4, index, begin) ++ block
-      case BT.Cancel(index, begin, length) => TorrentProtocol.cancel ++
-        byteStringify(4, index, begin, length)
-      case BT.Port(port) => TorrentProtocol.port ++ byteStringify(2, port)
-      case BT.Handshake(info, id) => TorrentProtocol.handshake ++ info ++ id
+                                               byteStringify(4, index, begin, length)
+      case BT.Piece(index, begin, block)    => ByteString(0, 0, 0, 9 + block.length, 7) ++
+                                               byteStringify(4, index, begin) ++
+                                               block
+      case BT.Cancel(index, begin, length)  => TorrentProtocol.cancel ++
+                                               byteStringify(4, index, begin, length)
+      case BT.Port(port)                    => TorrentProtocol.port ++
+                                               byteStringify(2, port)
+      case BT.Handshake(info, id)           => TorrentProtocol.handshake ++
+                                               info ++
+                                               id
     }
     connection ! Tcp.Write(data)
   }
