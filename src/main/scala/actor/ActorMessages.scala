@@ -39,9 +39,9 @@ object ActorMessage {
     case object NotInterested extends Message
     case object Bitfield extends Message
     case class Have(index: Int) extends Message
-    case class Request(index: Int, begin: Int, length: Int) extends Message
-    case class Piece(index: Int, begin: Int, block: ByteString) extends Message
-    case class Cancel(index: Int, begin: Int, length: Int) extends Message
+    case class Request(index: Int, offset: Int, length: Int) extends Message
+    case class Piece(index: Int, offset: Int, block: ByteString) extends Message
+    case class Cancel(index: Int, offset: Int, length: Int) extends Message
     case class Port(port: Int) extends Message
     case class Handshake(infoHash: ByteString, peerId: ByteString) extends Message
     case class Listener(actor: ActorRef)
@@ -56,9 +56,9 @@ object ActorMessage {
     case object NotInterestedR extends Reply
     case class BitfieldR(bitfield: Long) extends Reply with UpdateR
     case class HaveR(index: Int) extends Reply with UpdateR
-    case class RequestR(index: Int, begin: Int, length: Int) extends Reply
-    case class PieceR(index: Int, begin: Int, block: ByteString) extends Reply
-    case class CancelR(index: Int, begin: Int, length: Int) extends Reply
+    case class RequestR(index: Int, offset: Int, length: Int) extends Reply
+    case class PieceR(index: Int, offset: Int, block: ByteString) extends Reply
+    case class CancelR(index: Int, offset: Int, length: Int) extends Reply
     case class PortR(port: Int) extends Reply
     case class HandshakeR(infoHash: ByteString, peerId: ByteString) extends Reply
     case object Connected extends Reply

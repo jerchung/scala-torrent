@@ -74,25 +74,25 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   // TODO - BITFIELD
   def handleMessage(msg: BT.Message) = {
     val data: ByteString = msg match {
-      case BT.KeepAlive                     => TorrentProtocol.keepAlive
-      case BT.Choke                         => TorrentProtocol.choke
-      case BT.Unchoke                       => TorrentProtocol.unchoke
-      case BT.Interested                    => TorrentProtocol.interested
-      case BT.NotInterested                 => TorrentProtocol.notInterested
-      case BT.Have(index)                   => TorrentProtocol.have ++
-                                               byteStringify(4, index)
-      case BT.Request(index, begin, length) => TorrentProtocol.request ++
-                                               byteStringify(4, index, begin, length)
-      case BT.Piece(index, begin, block)    => ByteString(0, 0, 0, 9 + block.length, 7) ++
-                                               byteStringify(4, index, begin) ++
-                                               block
-      case BT.Cancel(index, begin, length)  => TorrentProtocol.cancel ++
-                                               byteStringify(4, index, begin, length)
-      case BT.Port(port)                    => TorrentProtocol.port ++
-                                               byteStringify(2, port)
-      case BT.Handshake(info, id)           => TorrentProtocol.handshake ++
-                                               info ++
-                                               id
+      case BT.KeepAlive                      => TorrentProtocol.keepAlive
+      case BT.Choke                          => TorrentProtocol.choke
+      case BT.Unchoke                        => TorrentProtocol.unchoke
+      case BT.Interested                     => TorrentProtocol.interested
+      case BT.NotInterested                  => TorrentProtocol.notInterested
+      case BT.Have(index)                    => TorrentProtocol.have ++
+                                                byteStringify(4, index)
+      case BT.Request(index, offset, length) => TorrentProtocol.request ++
+                                                byteStringify(4, index, offset, length)
+      case BT.Piece(index, offset, block)    => ByteString(0, 0, 0, 9 + block.length, 7) ++
+                                                byteStringify(4, index, offset) ++
+                                                block
+      case BT.Cancel(index, offset, length)  => TorrentProtocol.cancel ++
+                                                byteStringify(4, index, offset, length)
+      case BT.Port(port)                     => TorrentProtocol.port ++
+                                                byteStringify(2, port)
+      case BT.Handshake(info, id)            => TorrentProtocol.handshake ++
+                                                info ++
+                                                id
     }
     connection ! Tcp.Write(data)
   }
@@ -124,15 +124,15 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
             case 5 => BT.BitfieldR(data.slice(5, length))
             case 6 => BT.RequestR(
               index = data.slice(5, 9),
-              begin = data.slice(9, 13),
+              offset = data.slice(9, 13),
               length = data.slice(13, 17))
             case 7 => BT.PieceR(
               index = data.slice(5, 9),
-              begin = data.slice(9, 13),
+              offset = data.slice(9, 13),
               block = data.slice(13, length))
             case 8 => BT.CancelR(
               index = data.slice(5, 9),
-              begin = data.slice(9, 13),
+              offset = data.slice(9, 13),
               length = data.slice(13, 17))
             case 9 => BT.PortR(data.slice(5, 7))
             case _ => BT.InvalidR

@@ -64,17 +64,10 @@ class TorrentClient(id: String, fileName: String) extends Actor {
           wantedPiecesFreq(i) += 1
       }
     case Unavailable(remove) =>
-      remove match {
-        case Right(bitfield) =>
-          availability --= bitfield
-          bitfield foreach { i =>
-            wantedPiecesFreq(i) -= 1
-            if (wantedPiecesFreq(i) <= 0) { wantedPiecesFreq -= i} // Remove key
-          }
-        case Left (i) =>
-          availability -= i
-          wantedPiecesFreq(i) -= 1
-          if (wantedPiecesFreq(i) <= 0) { wantedPiecesFreq -= i}
+      availability --= bitfield
+      bitfield foreach { i =>
+        wantedPiecesFreq(i) -= 1
+        if (wantedPiecesFreq(i) <= 0) { wantedPiecesFreq -= i} // Remove key
       }
     case BlockDownloaded(i) =>
       downloaded += i
