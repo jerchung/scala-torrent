@@ -27,7 +27,7 @@ class BlockManager(size: Int, numBlocks: Int, pieces: ByteString) extends Actor 
     MessageDigest.getInstance("SHA-1").digest(bytes)
   }
 
-  // Check if piece is done and write it to disk
+  // Check if piece is done and flush it to disk
   def checkComplete(buffer: Map[Int, ByteString]) = {
     if (buffer.length == numBlocks) {
 
