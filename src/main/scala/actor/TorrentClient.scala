@@ -1,4 +1,4 @@
-package org.jerchung.torrent
+package org.jerchung.torrent.actor
 
 import ActorMessage.{ TorrentM, TrackerM }
 import akka.actor.{Actor, ActorRef, Props}
@@ -27,7 +27,8 @@ class TorrentClient(id: String, fileName: String) extends Actor {
 
   // Spawn needed actor(s)
   val trackerClient = context.actorOf(TrackerClient.props)
-  val server = context.actorOf(PeerServer.props(id))
+  val manager = context.actorOf(PeerManager.props)
+  val server = context.actorOf(PeerServer.props(manager))
 
   // This bitset holds which pieces have been downloaded - starts at 0
   val have = mutable.BitSet.empty
@@ -65,7 +66,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
     val numSeeders = resp("complete").asInstanceOf[Int]
     val numLeechers = resp("incomplete").asInstanceOf[Int]
     val peers: List[Peer] = resp("peers") match {
-      case prs: List[_] => prs.map { peer =>
+      case prs: List => prs.map { peer =>
         val p = peer.asInstanceOf[Map[String, Any]]
         Peer(
           ip = p("ip").asInstanceOf[ByteString],
@@ -74,11 +75,12 @@ class TorrentClient(id: String, fileName: String) extends Actor {
         )
       }
       // case prs: ByteString => peerlistFromCompact(prs)
+      case _ => List()
     }
     peers foreach { peer =>
       val remote = new InetSocketAddress(peer.ip, peer.port)
       val connectionF = IO(Tcp) ? Tcp.Connect(remote)
-      connectionF map {
+      connectionF onSuccess {
         case Tcp.Conected(remote, local) =>
           val connection = sender
           val protocol =

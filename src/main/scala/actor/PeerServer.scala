@@ -1,4 +1,4 @@
-package org.jerchung.torrent
+package org.jerchung.torrent.actor
 
 import ActorMessage.{ BT, TorrentM }
 import akka.actor.{ Props, Actor, ActorRef }
@@ -9,11 +9,11 @@ import java.net.InetSocketAddress
 import scala.concurrent.duration._
 
 object PeerServer {
-  def props(id: ByteString): Props = { Props(classOf[PeerServer], id) }
+  def props(manager: ActorRef): Props = { Props(classOf[PeerServer], manager) }
 }
 
 // Listen for new connections made from peers
-class PeerServer(id: ByteString) extends Actor {
+class PeerServer(manager: ActorRef) extends Actor {
 
   import context.{ system, become, parent, dispatcher }
 
@@ -28,8 +28,7 @@ class PeerServer(id: ByteString) extends Actor {
     case Tcp.Connected(remote, local) =>
       val connection = sender
       val protocol = context.actorOf(TorrentProtocol.props(connection))
-      val waiterF = (parent ? WaitForHandshake.props(protocol)).mapTo[ActorRef]
-      waiterF onSuccess { case waiter => protocol ! BT.Listener(waiterF) }
+      manager ! WaitForHandshake.props(protocol)
   }
 
 }
@@ -41,14 +40,14 @@ object WaitForHandshake {
 /* Parent must be TorrentClient */
 class WaitForHandshake(protocol: ActorRef) extends Actor {
 
+  // Register self with TorrentProtocol actor upon intialization
+  override def preStart(): Unit = {
+    protocol ! BT.Listener(self)
+  }
+
   def receive = {
     case BT.HandshakeR(infoHash, peerId) =>
-      for {
-        peer <- (parent ? PeerClient.props(Peer(peerId, id, infoHash), protocol)).mapTo[ActorRef]
-        listenerSet <- protocol ? BT.Listener(peer)
-      } yield {
-        peer ! TorrentM.Handshake
-      }
+      manager ! PeerClient.props(Peer(peerId, id, infoHash), protocol)
   }
 
 }

@@ -1,4 +1,4 @@
-package org.jerchung.torrent
+package org.jerchung.torrent.actor
 
 import akka.actor.ActorRef
 import akka.util.ByteString

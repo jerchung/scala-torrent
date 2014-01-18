@@ -1,4 +1,4 @@
-package org.jerchung.torrent
+package org.jerchung.torrent.actor
 
 import dispatch._, Defaults._
 import org.jerchung.bencode.Bencode

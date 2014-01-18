@@ -1,4 +1,4 @@
-package org.jerchung.torrent
+package org.jerchung.torrent.actor
 
 import ActorMessage.{ PeerM, BT }
 import akka.actor.{ Actor, ActorRef, Props, PoisonPill }
@@ -44,12 +44,12 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   // corresponding ByteString of the int with appropriate leading 0s
   // Works for multiple nums of the same size
   def byteStringify(size: Int, nums: Int*): ByteString = {
-    val byteStrings = nums map { n =>
+    val byteStrings: List[ByteString] = nums map { n =>
       val byteArray = Array.fill[Byte](size)(0)
       ByteBuffer.wrap(byteArray).putInt(n)
       ByteString.fromArray(byteArray)
     }
-    byteStrings.foldLeft(ByteString()) { (acc, cur) => acc ++ cur }
+    byteStrings reduceLeft { (acc, cur) => acc ++ cur }
   }
 
   def receive = {
@@ -71,6 +71,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
 
   // Handle each type of tcp peer message that client may want to send
   // Create ByteString based off message type and send to tcp connection
+  // TODO - BITFIELD
   def handleMessage(msg: BT.Message) = {
     val data: ByteString = msg match {
       case BT.KeepAlive => TorrentProtocol.keepAlive

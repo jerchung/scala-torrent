@@ -1,28 +1,29 @@
-package org.jerchung.torrent
+package org.jerchung.torrent.actor
 
 import ActorMessage.{ PeerM, BT }
 import akka.actor.{ Actor, ActorRef, Props }
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
 import scala.collection.immutable.BitSet
+import scala.collection.mutable
 import scala.concurrent.duration._
 
 object PeerClient {
-  def props(peer: Peer, ownAvailable: Array[Byte], protocol: ActorRef) = {
-    Props(classOf[PeerClient], peer, ownAvailable, infoHash)
+  def props(peer: Peer, protocol: ActorRef, replying: Boolean) = {
+    Props(classOf[PeerClient], peer, protocol, replying)
   }
 }
 
 // One of these actors per peer
 /* Parent must be Torrent Client */
-class PeerClient(peer: Peer, protocol: ActorRef) extends Actor {
+class PeerClient(peer: Peer, protocol: ActorRef, replying: Boolean) extends Actor {
 
   import context.{ system, become, parent, dispatcher }
 
-  val peerId = peer.peerId
-  val ownId = peer.ownId
-  val infoHash = peer.infoHash
-  val ownAvailable = peer.ownAvailable // This is MUTABLE
+  val peerId: ByteString = peer.peerId
+  val ownId: ByteString = peer.ownId
+  val infoHash: ByteString = peer.infoHash
+  val ownAvailable: mutable.BitSet = peer.ownAvailable
   var peerAvailable = BitSet.empty
 
   // Need to keep mutable state
@@ -30,6 +31,13 @@ class PeerClient(peer: Peer, protocol: ActorRef) extends Actor {
   var immediatePostHandshake = true
   var amChoking, peerChoking = true
   var amInterested, peerInterested = false
+
+  override def preStart(): Unit = (
+    val listenerSet = (protocol ? BT.Listener(self)).mapTo[Boolean]
+    val listenerSet onSuccess {
+      case true if (replying) => protocol ! BT.Handshake(infoHash, ownId)
+    }
+  )
 
   def receive: Receive = {
     case PeerM.Handshake => protocol ! BT.Handshake(infoHash, ownId)
