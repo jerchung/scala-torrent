@@ -11,4 +11,7 @@ object BlockManager {
 
 class BlockManager(size: Int) extends Actor {
 
+  def receive = {
+    case Write(index, offset, block) =>
+  }
 }
