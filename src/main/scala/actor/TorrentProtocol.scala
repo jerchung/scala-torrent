@@ -6,6 +6,7 @@ import akka.io.Tcp
 import akka.util.ByteString
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
+import scala.collection.immutable.BitSet
 
 object TorrentProtocol {
   def props(connection: ActorRef) =
@@ -23,6 +24,13 @@ object TorrentProtocol {
   lazy val port = ByteString(0, 0, 0, 3, 9)
   lazy val protocol = ByteString.fromString("BitTorrent protocol")
   lazy val handshake = ByteString(19) ++ protocol
+
+  // Use number of pieces a particular torrent has to generate the bitfield
+  def bitfield(bitfield: BitSet): ByteString = {
+    val bitValue = if (bitfield.isEmpty) 0 else bitfield.toBitMask.head
+    val bitfieldBytes =
+    val length = 1 +
+  }
 
 }
 
@@ -79,6 +87,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
       case BT.Unchoke                        => TorrentProtocol.unchoke
       case BT.Interested                     => TorrentProtocol.interested
       case BT.NotInterested                  => TorrentProtocol.notInterested
+      case BT.Bitfield(bitfield)             => TorrentProtocol.
       case BT.Have(index)                    => TorrentProtocol.have ++
                                                 byteStringify(4, index)
       case BT.Request(index, offset, length) => TorrentProtocol.request ++

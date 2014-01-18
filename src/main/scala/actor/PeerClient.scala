@@ -4,21 +4,29 @@ import ActorMessage.{ PeerM, BT }
 import akka.actor.{ Actor, ActorRef, Props }
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
+import akka.util.Timeout
+import org.jerchung.torrent.actor.PeerClient.{ State, ReplyingHandshake, }
 import scala.collection.immutable.BitSet
 import scala.collection.mutable
 import scala.concurrent.duration._
 
 object PeerClient {
-  def props(peer: Peer, protocol: ActorRef, blockManager: ActorRef, replying: Boolean) = {
-    Props(classOf[PeerClient], peer, protocol, blockManager, replying)
+
+  sealed trait State
+  case object ReplyingHandshake extends State
+
+  def props(peer: Peer, protocol: ActorRef, blockManager: ActorRef, states: State*) = {
+    Props(classOf[PeerClient], peer, protocol, blockManager, state)
   }
 }
 
 // One of these actors per peer
 /* Parent must be Torrent Client */
-class PeerClient(info: Peer, protocol: ActorRef, blockManager: ActorRef replying: Boolean) extends Actor {
+class PeerClient(info: Peer, protocol: ActorRef, blockManager: ActorRef, states: State*) extends Actor {
 
   import context.{ system, become, parent, dispatcher }
+
+  implicit val timeout = Timeout(5 millis)
 
   val peerId: ByteString   = info.peerId
   val ownId: ByteString    = info.ownId
@@ -34,11 +42,17 @@ class PeerClient(info: Peer, protocol: ActorRef, blockManager: ActorRef replying
 
   override def preStart(): Unit = {
     val listenerSet = (protocol ? BT.Listener(self)).mapTo[Boolean]
-    val listenerSet onSuccess {
-      case true if (replying) => protocol ! BT.Handshake(infoHash, ownId)
+    listenerSet onSuccess { case _ =>
+      states foreach { state =>
+        state match {
+          case ReplyingHandshake => protocol ! BT.Handshake(infoHash, ownId)
+          case _ =>
+        }
+      }
     }
   }
 
+  // Notify TorrentClient of now unavailable pieces
   override def postStop(): Unit = {
     parent ! Unavailable(peerHas)
   }

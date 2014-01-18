@@ -43,6 +43,9 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   // Be careful with this since it's a var mutable
   var availability = mutable.BitSet.empty
 
+  // Frequency of all pieces - won't delete from here
+  val allPiecesFreq = mutable.Map[Int, Int]().withDefaultValue(0)
+
   // Map[pieceIndex, count] to check for frequency for piece picking
   val wantedPiecesFreq = mutable.Map[Int, Int]().withDefaultValue(0)
 
@@ -57,15 +60,17 @@ class TorrentClient(id: String, fileName: String) extends Actor {
     case Available(update) =>
       update match {
         case Right(bitfield) =>
-          availability |= bitfield
-          bitfield foreach { i => wantedPiecesFreq(i) += 1 }
+          bitfield foreach { i =>
+            allPiecesFreq(i) += 1
+            wantedPiecesFreq(i) += 1
+          }
         case Left(i) =>
-          availability += i
+          allPiecesFreq(i) += 1
           wantedPiecesFreq(i) += 1
       }
     case Unavailable(remove) =>
-      availability --= bitfield
-      bitfield foreach { i =>
+      remove foreach { i =>
+        allPiecesFreq(i) -= 1
         wantedPiecesFreq(i) -= 1
         if (wantedPiecesFreq(i) <= 0) { wantedPiecesFreq -= i} // Remove key
       }
