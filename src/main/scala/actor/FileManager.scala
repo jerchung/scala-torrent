@@ -5,13 +5,17 @@ import akka.util.ByteString
 import java.security.MessageDigest
 import java.io.RandomAccessFile
 
-object BlockManager {
+object FileManager {
   def props: Props(size: Int, numBlocks: Int, pieces: ByteString) = {
-    Props(classOf[BlockManager], size, numBlocks, pieces)
+    Props(classOf[FileManager], size, numBlocks, pieces)
   }
 }
 
-class BlockManager(size: Int, numBlocks: Int, pieces: ByteString) extends Actor {
+/**
+ * Doesn't just manage files, manages pieces, blocks etc. but I couldn't really
+ * think of a better name for this actor
+ */
+class FileManager(size: Int, numBlocks: Int, pieces: ByteString) extends Actor {
 
   // Hashes of each piece for later comparison
   val pieceHashes: Array[Array[Byte]] = pieces.grouped(20).map(_.toArray).toArray

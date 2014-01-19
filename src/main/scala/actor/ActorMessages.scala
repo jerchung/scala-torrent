@@ -37,7 +37,7 @@ object ActorMessage {
     case object Unchoke extends Message
     case object Interested extends Message
     case object NotInterested extends Message
-    case object Bitfield extends Message
+    case class Bitfield(bitfield: BitSet, numPieces: Int) extends Message
     case class Have(index: Int) extends Message
     case class Request(index: Int, offset: Int, length: Int) extends Message
     case class Piece(index: Int, offset: Int, block: ByteString) extends Message

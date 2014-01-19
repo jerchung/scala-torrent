@@ -22,7 +22,7 @@ class PeerManager extends Actor {
   val ID = s"-${ClientId + Version}-${randomIntString(12)}"
 
   val connectedPeers = mutable.Map[ByteString, ActorRef]()
-  val blockManager = context.actorOf(BlockManager.props)
+  val blockManager = context.actorOf(FileManager.props)
 
   def receive = {
     case CreatePeer(peerId, infoHash, protocol) =>

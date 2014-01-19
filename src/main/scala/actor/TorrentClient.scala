@@ -18,6 +18,9 @@ import scala.util.Random
 // This case class encapsulates the information needed to create a peer actor
 case class PeerInfo(peerId: ByteString, ownId: ByteString, infoHash: ByteString, ownAvailable: BitSet)
 
+// Encapsulate interesting connected peer info - Maybe dont use this
+case class ConnectedPeer(actor: ActorRef, ip: String, port: Int)
+
 // This actor takes care of the downloading of a *single* torrent
 class TorrentClient(id: String, fileName: String) extends Actor {
 
@@ -32,16 +35,13 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   // Spawn needed actor(s)
   val trackerClient = context.actorOf(TrackerClient.props)
   val server = context.actorOf(PeerServer.props)
+  val blockManager = context.actorOf(FileManager.props(torrent. ))
 
+  // peerId -> ActorRef
   val connectedPeers = mutable.Map[ByteString, ActorRef]()
-  val blockManager = context.actorOf(BlockManager.props(torrent. ))
 
   // This bitset holds which pieces have been downloaded - starts at 0
   var downloaded = BitSet.empty
-
-  // What the total availability from all connected peers is
-  // Be careful with this since it's a var mutable
-  var availability = mutable.BitSet.empty
 
   // Frequency of all pieces - won't delete from here
   val allPiecesFreq = mutable.Map[Int, Int]().withDefaultValue(0)
@@ -55,7 +55,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
     case TrackerM.Response(r) => connectPeers(r)
     case CreatePeer(peerId, infoHash, protocol) =>
       val peer = context.actorOf(PeerClient.props) // Todo - Add parameters
-      connectedPeers(peerId) => peer
+      connectedPeers(peerId) = peer
       sender ! peer
     case Available(update) =>
       update match {
@@ -68,8 +68,9 @@ class TorrentClient(id: String, fileName: String) extends Actor {
           allPiecesFreq(i) += 1
           wantedPiecesFreq(i) += 1
       }
-    case Unavailable(remove) =>
-      remove foreach { i =>
+    case Disconnected(peerId, peerHas) =>
+      connectedPeers -= peerId
+      peerHas foreach { i =>
         allPiecesFreq(i) -= 1
         wantedPiecesFreq(i) -= 1
         if (wantedPiecesFreq(i) <= 0) { wantedPiecesFreq -= i} // Remove key

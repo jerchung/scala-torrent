@@ -5,7 +5,7 @@ import akka.actor.{ Actor, ActorRef, Props }
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
 import akka.util.Timeout
-import org.jerchung.torrent.actor.PeerClient.{ State, ReplyingHandshake, }
+import org.jerchung.torrent.actor.PeerClient.{ State, ReplyingHandshake }
 import scala.collection.immutable.BitSet
 import scala.collection.mutable
 import scala.concurrent.duration._
@@ -15,14 +15,14 @@ object PeerClient {
   sealed trait State
   case object ReplyingHandshake extends State
 
-  def props(peer: Peer, protocol: ActorRef, blockManager: ActorRef, states: State*) = {
-    Props(classOf[PeerClient], peer, protocol, blockManager, state)
+  def props(peer: Peer, protocol: ActorRef, fileManager: ActorRef, states: State*) = {
+    Props(classOf[PeerClient], peer, protocol, fileManager, state)
   }
 }
 
 // One of these actors per peer
 /* Parent must be Torrent Client */
-class PeerClient(info: Peer, protocol: ActorRef, blockManager: ActorRef, states: State*) extends Actor {
+class PeerClient(info: Peer, protocol: ActorRef, fileManager: ActorRef, states: State*) extends Actor {
 
   import context.{ system, become, parent, dispatcher }
 
@@ -52,34 +52,47 @@ class PeerClient(info: Peer, protocol: ActorRef, blockManager: ActorRef, states:
     }
   }
 
-  // Notify TorrentClient of now unavailable pieces
+  // Notify TorrentClient of disconnecting peer with info needed update piece
+  // frequency counts etc.
   override def postStop(): Unit = {
-    parent ! Unavailable(peerHas)
+    parent ! Disconnect(peerId, peerHas)
   }
 
   def receive = {
     case PeerM.Handshake => protocol ! BT.Handshake(infoHash, ownId)
-    case m: BT.Message   =>
-      m match {
-        case BT.Have(index)        => iHave += index
-        case BT.Bitfield(bitfield) => iHave = bitfield
-        case _                     =>
-      }
-      protocol ! m
+    case m: BT.Message   => handleMessage(m)
     case r: BT.Reply     => handleReply(r)
+  }
+
+  /*
+  * Update state according to message and then send message along to protocol
+  * to be send over the wire to the peer in ByteString form
+  */
+  def handleMessage(message: BT.Message): Unit = {
+    message match {
+      case BT.Choke              => amChoking = true
+      case BT.Unchoke            => amChoking = false
+      case BT.Interested         => amInterested = true
+      case BT.NotInterested      => amInterested = false
+      case BT.Have(index)        => iHave += index
+      case BT.Bitfield(bitfield) => iHave = bitfield
+      case _                     =>
+    }
+    protocol ! message
   }
 
   def handleReply(reply: BT.Reply): Unit = {
     reply match {
-      case BT.KeepAliveR => keepAlive = true
-      case BT.ChokeR => peerChoking = true
-      case BT.UnchokeR => peerChoking = false
-      case BT.InterestedR => peerInterested = true
-      case BT.NotInterestedR => peerInterested = false
-      case update: BT.UpdateR => updatePeerAvailable(msg)
+      case BT.KeepAliveR                      => keepAlive = true
+      case BT.ChokeR                          => peerChoking = true
+      case BT.UnchokeR                        => peerChoking = false
+      case BT.InterestedR                     => peerInterested = true
+      case BT.NotInterestedR                  => peerInterested = false
+      case update: BT.UpdateR                 => updatePeerAvailable(msg)
       case BT.RequestR(index, offset, length) =>
-      case BT.PieceR(index, offset, block) => blockManager ! Write(index, offset, block)
-      case BT.HandshakeR(infoHash, peerId) =>
+      case BT.PieceR(index, offset, block)    => fileManager ! Write(index, offset, block)
+      case BT.CancelR(index, offset, length)  =>
+      case BT.HandshakeR(infoHash, peerId)    =>
         if (infoHash != this.infoHash || peerId != this.peerId) {
           parent ! "Invalid"
           context stop self

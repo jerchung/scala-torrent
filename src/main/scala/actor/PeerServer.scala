@@ -19,8 +19,17 @@ class PeerServer extends Actor {
 
   implicit val timeout = Timeout(5 seconds)
 
-  // Figure out which port to bind to later - right now 0 defaults to random
-  IO(Tcp) ! Tcp.Bind(self, new InetSocketAddress("localhost", 0))
+  override def preStart(): Unit = {
+    // Figure out which port to bind to later - right now 0 defaults to random
+    IO(Tcp) ! Tcp.Bind(self, new InetSocketAddress("localhost", 0))
+  }
+
+  /**
+   * Keep bind call from being sent to IO(Tcp).  According to akka documentation
+   * upon actor restart, preStart is called from postRestart by default, so
+   * override it so that the bind call is only sent upon initial actor creation
+   */
+  override def postRestart(): Unit = {}
 
   def receive = {
     case b @ Tcp.Bound(localAddress) => // Implement logging later

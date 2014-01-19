@@ -9,8 +9,20 @@ import java.nio.ByteBuffer
 import scala.collection.immutable.BitSet
 
 object TorrentProtocol {
-  def props(connection: ActorRef) =
+
+  def props(connection: ActorRef): Props = {
     Props(classOf[TorrentProtocol], connection)
+  }
+
+  // Implicitly convert to Int when taking slices of a ByteString response and
+  // parsing it to a TCP BitTorrent Exchange message
+  implicit def ByteStringToInt(data: ByteString): Int = {
+    ByteBuffer.wrap(data.toArray).getInt
+  }
+
+  implicit def ByteStringToLong(data: ByteString): Long = {
+    ByteBuffer.wrap(data.toArray).getLong
+  }
 
   // ByteString prefix of peer messages which stay constant
   lazy val keepAlive = ByteString(0, 0, 0, 0)
@@ -26,27 +38,22 @@ object TorrentProtocol {
   lazy val handshake = ByteString(19) ++ protocol
 
   // Use number of pieces a particular torrent has to generate the bitfield
-  def bitfield(bitfield: BitSet): ByteString = {
+  // Bytes needed is numPieces / 8 since it's 8 bits per byte
+  def bitfield(bitfield: BitSet, numPieces: Int): ByteString = {
     val bitValue = if (bitfield.isEmpty) 0 else bitfield.toBitMask.head
-    val bitfieldBytes =
-    val length = 1 +
+    val numBytesNeeded = math.ceil(numPieces.toFloat / 8).toInt
+    val buffer = ByteBuffer.allocate(numBytesNeed)
+    val byteArray = buffer.putInt(bitValue)
+    ByteString.fromArray(byteArray)
   }
 
 }
 
 class TorrentProtocol(connection: ActorRef) extends Actor {
 
+  import TorrentProtocol.{ ByteStringToInt, ByteStringToLong }
+
   var listener: ActorRef = _
-
-  // Implicitly convert to Int when taking slices of a ByteString response and
-  // parsing it to a TCP BitTorrent Exchange message
-  implicit def ByteStringToInt(data: ByteString): Int = {
-    ByteBuffer.wrap(data.toArray).getInt
-  }
-
-  implicit def ByteStringToLong(data: ByteString): Long = {
-    ByteBuffer.wrap(data.toArray).getLong
-  }
 
   // Take in an int and the # of bytes it should contain, return the
   // corresponding ByteString of the int with appropriate leading 0s
@@ -87,7 +94,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
       case BT.Unchoke                        => TorrentProtocol.unchoke
       case BT.Interested                     => TorrentProtocol.interested
       case BT.NotInterested                  => TorrentProtocol.notInterested
-      case BT.Bitfield(bitfield)             => TorrentProtocol.
+      case BT.Bitfield(bitfield, numPieces)  => TorrentProtocol.bitfield(bitfield, numPieces)
       case BT.Have(index)                    => TorrentProtocol.have ++
                                                 byteStringify(4, index)
       case BT.Request(index, offset, length) => TorrentProtocol.request ++
