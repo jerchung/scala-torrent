@@ -60,21 +60,22 @@ class FileManager(torrent: Torrent) extends Actor {
   }
 
   def receive = {
+    case Read(idx, off, length) => getBlock(idx, off, length)
     case Write(idx, off, block) =>
       pieces(index) match {
         case p: UnfinishedPiece => insertBlock(p, idx, off, block)
         case _ =>
       }
-    case Read(index, offset, length) => getBlock(index, offset, length)
   }
 
   // Will possibly need to add checks for bounded index / offset later
-  // This call may have the side effect of having disk IO if the piece having
-  // the block inserted in ends up being completed
+  // This call may have the effect of having disk IO if the piece having
+  // the block inserted in ends up being completed. Also takes care of the
+  // caching / invalid / finished piece logic
   def insertBlock(piece: UnfinishedPiece, index: Int, offset: Int, block: ByteString): Unit = {
     piece.insert(offset, block) match {
       case p @ CachedPiece(index, size, hash, data) =>
-        pieces(index) = new FinishedPiece(index, size, hash)
+        pieces(index) = new FinishedPiece(index, size, hash, diskIO)
         cachedPieces(index) = p
         parent ! PieceDone(index)
       case InvalidPiece(index, size, hash) =>
@@ -86,20 +87,19 @@ class FileManager(torrent: Torrent) extends Actor {
 
   // Gets the data requested and also has caching logic
   def getBlock(index: Int, offset: Int, length: Int): Unit = {
-    if (cachedPieces contains index) {
+    val byteString: Option[ByteString] = if (cachedPieces contains index) {
       val data: Array[Byte] = cachedPieces(index).data
-      val byteString = ByteString.fromArray(data, offset, length)
-      sender ! BT.Piece(index, offset, byteString)
+      Some(ByteString.fromArray(data, offset, length))
     } else {
       pieces(index) match {
         case p: FinishedPiece =>
           val data: Array[Byte] = p.getData.array
-          val byteString = ByteString.fromArray(data, offset, length)
           cachedPieces(index) += CachedPiece(index, p.size, p.hash, data)
-          sender ! BT.Piece(index, offset, byteString)
-        case _ =>
+          Some(ByteString.fromArray(data, offset, length))
+        case _ => None
       }
     }
+    byteString map { b => sender ! BT.Piece(index, offset, b) }
   }
 
 }

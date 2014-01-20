@@ -16,6 +16,7 @@ case class TorrentFile(length: Int, path: String = "")
 object Torrent {
 
   val Charset = "ISO-8859-1"
+  val HashAlgo = "SHA-1"
   // ByteString converted to String as needed through implicit conversion
   def apply(torrent: Map[String, Any]): Torrent = {
     new Torrent(
@@ -75,10 +76,14 @@ class Torrent(
   }
 
   // Total number of pieces
-  val numPieces = pieces.length / 20
+  val numPieces = piecesHash.length / 20
 
   // Total size of all files in bytes
   val totalSize = files.foldLeft(0){ (size, file) => size + file.length }
+
+  if (math.ceil(totalSize.toFloat / pieceLength) != numPieces) {
+    throw new TorrentError("Bencode piece sizes and totalSize do not agree")
+  }
 
   private lazy val getMultipleFiles: List[TorrentFile] = {
     val files = info("files").asInstanceOf[List[Map[String, Any]]]
@@ -88,7 +93,7 @@ class Torrent(
   }
 
   def sha1(bytes: Array[Byte]): Array[Byte] = {
-    MessageDigest.getInstance("SHA-1").digest(bytes)
+    MessageDigest.getInstance(Torrent.HashAlgo).digest(bytes)
   }
 
 }

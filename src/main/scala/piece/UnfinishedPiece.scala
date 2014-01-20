@@ -10,8 +10,9 @@ class UnfinishedPiece(
     extends Piece {
 
   // Important for this to be lazy since then not all pieces get memory
-  // allocated to them at the beginning
+  // allocated to them at the beginning, thus saving memory
   private lazy val blocks: ByteBuffer = ByteBuffer.allocate(size)
+
   private val md = MessageDigest.getInstance("SHA-1")
   private var bytesWritten = 0
 
@@ -33,24 +34,24 @@ class UnfinishedPiece(
   }
 
   // This should be called only when piece is ready to be written to disk
-  def write(data: ByteBuffer): Unit = {
+  private def write(data: ByteBuffer): Unit = {
     writer.write(index, offset, data)
   }
 
-  def isComplete: Boolean = {
+  private def isComplete: Boolean = {
     bytesWritten == size
   }
 
-  def hashMatches: Boolean = {
-    sha1 == hash
+  private def hashMatches: Boolean = {
+    sha1.sameElements(hash)
   }
 
-  def sha1: Array[Byte] = {
+  private def sha1: Array[Byte] = {
     md.update(buffer)
     md.digest
   }
 
-  def clear: Unit = {
+  private def clear: Unit = {
     buffer.clear
     blocks = None
   }

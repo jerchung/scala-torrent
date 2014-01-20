@@ -26,7 +26,8 @@ class Decoder {
         case 'd' => decodeDictionary(input)
         case 'l' => decodeList(input)
         case 'i' => decodeInteger(input)
-        case _ => throw new DecodeError(s"Invalid Bencode format - got char $next when should have gotten d, l, i, or digit")
+        case _ => throw new DecodeError("Invalid Bencode format - got char " +
+          s"${next} when should have gotten d, l, i, or digit")
       }
     }
   }
@@ -55,7 +56,7 @@ class Decoder {
         resultMap
       case _ =>
         //Implicit conversion takes care of ByteString -> String
-        val key = decode(input).asInstanceOf[ByteString]: String
+        val key: String = decode(input).asInstanceOf[ByteString]
         val value = decode(input)
         decodeDictionary(input, resultMap + (key -> value))
     }
@@ -67,7 +68,7 @@ class Decoder {
     if (!input.hasNext) throw new DecodeError("No more input before termination char e")
     input.head match {
       case 'e' =>
-        input.next
+        input.drop(1)
         //Reverse at end since we've been prepending for runtime reasons
         resultList.reverse
       case _ =>
@@ -76,6 +77,7 @@ class Decoder {
     }
   }
 
+  // Read in string form of integer (Ex. "1393") char by char, then convert to Int
   def decodeInteger(input: BufferedIterator[Byte], resultInt: String = ""): Int = {
     if (!input.hasNext) throw new DecodeError("No more input before termination char e")
     val next = input.next

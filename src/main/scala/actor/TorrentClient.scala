@@ -38,16 +38,19 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   val fileManager   = context.actorOf(FileManager.props(torrent)
 
   // peerId -> ActorRef
-  val connectedPeers = mutable.Map[ByteString, ActorRef]()
+  val connectedPeers = mutable.Map.empty[ByteString, ActorRef]
+
+  // Of the connectedPeers, these are the peers that are interested / unchoked
+  val communicatingPeers = mutable.Map.empty[ByteString, ActorRef]
 
   // This bitset holds which pieces are done
   var piecesDone = BitSet.empty
 
   // Frequency of all available pieces
-  val allPiecesFreq = mutable.Map[Int, Int]().withDefaultValue(0)
+  val allPiecesFreq = mutable.Map.empty[Int, Int].withDefaultValue(0)
 
   // Frequency of wanted Pieces hashed by index
-  val wantedPiecesFreq = mutable.Map[Int, Int]().withDefaultValue(0)
+  val wantedPiecesFreq = mutable.Map.empty[Int, Int].withDefaultValue(0)
 
   def receive = {
     case p: Props => sender ! context.actorOf(p) // Actor creation
@@ -68,7 +71,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
           allPiecesFreq(i) += 1
           wantedPiecesFreq(i) += 1
       }
-    case Disconnected(peerId, peerHas) =>
+    case DisconnectedPeer(peerId, peerHas) =>
       connectedPeers -= peerId
       peerHas foreach { i =>
         allPiecesFreq(i) -= 1
@@ -167,7 +170,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   }
 
   def broadcast(message: Message): Unit = {
-    connectedPeers foreach { (id, peer) => peer ! message }
+    communicatingPeers foreach { (id, peer) => peer ! message }
   }
 
 }

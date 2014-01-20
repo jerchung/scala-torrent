@@ -55,7 +55,7 @@ class PeerClient(info: Peer, protocol: ActorRef, fileManager: ActorRef, states: 
   // Notify TorrentClient of disconnecting peer with info needed update piece
   // frequency counts etc.
   override def postStop(): Unit = {
-    parent ! Disconnect(peerId, peerHas)
+    parent ! DisconnectedPeer(peerId, peerHas)
   }
 
   def receive = {
