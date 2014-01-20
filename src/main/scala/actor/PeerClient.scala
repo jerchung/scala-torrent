@@ -41,13 +41,13 @@ class PeerClient(info: Peer, protocol: ActorRef, fileManager: ActorRef, states: 
   var amInterested, peerInterested = false
 
   override def preStart(): Unit = {
-    val listenerSet = (protocol ? BT.Listener(self)).mapTo[Boolean]
-    listenerSet onSuccess { case _ =>
-      states foreach { state =>
-        state match {
-          case ReplyingHandshake => protocol ! BT.Handshake(infoHash, ownId)
-          case _ =>
-        }
+    for {
+      listenerSet <- (protocol ? BT.Listener(self)).mapTo[Boolean]
+      state <- states
+    } yield {
+      state match {
+        case ReplyingHandshake => protocol ! BT.Handshake(infoHash, ownId)
+        case _ =>
       }
     }
   }
