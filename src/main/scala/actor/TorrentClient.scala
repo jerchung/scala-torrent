@@ -32,16 +32,10 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   val Version  = "1000"
   val ID       = s"-${ClientId + Version}-${randomIntString(12)}"
 
-  // Interface that reads/writes pieces from/to disk
-  val diskIO: TorrentBytesIO = torrent.fileMode match {
-    case Single   => new SingleFileIO(torrent.files.head)
-    case Multiple => new MultipleFileIO(torrent.files:_*)
-  }
-
   // Spawn needed actor(s)
   val trackerClient = context.actorOf(TrackerClient.props)
   val server        = context.actorOf(PeerServer.props)
-  val fileManager   = context.actorOf(FileManager.props(torrent, diskIO))
+  val fileManager   = context.actorOf(FileManager.props(torrent)
 
   // peerId -> ActorRef
   val connectedPeers = mutable.Map[ByteString, ActorRef]()

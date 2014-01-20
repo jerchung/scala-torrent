@@ -39,6 +39,7 @@ object TorrentProtocol {
 
   // Use number of pieces a particular torrent has to generate the bitfield
   // Bytes needed is numPieces / 8 since it's 8 bits per byte
+  // numPieces needs to be passed in so that the number of padding 0's is known
   def bitfield(bitfield: BitSet, numPieces: Int): ByteString = {
     val bitValue = if (bitfield.isEmpty) 0 else bitfield.toBitMask.head
     val numBytesNeeded = math.ceil(numPieces.toFloat / 8).toInt
@@ -51,6 +52,7 @@ object TorrentProtocol {
 
 class TorrentProtocol(connection: ActorRef) extends Actor {
 
+  // Import the implicit conversions
   import TorrentProtocol.{ ByteStringToInt, ByteStringToLong }
 
   var listener: ActorRef = _
@@ -88,7 +90,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   // Create ByteString based off message type and send to tcp connection
   // TODO - BITFIELD
   def handleMessage(msg: BT.Message) = {
-    val data: ByteString = msg match {
+    val byteMessage: ByteString = msg match {
       case BT.KeepAlive                      => TorrentProtocol.keepAlive
       case BT.Choke                          => TorrentProtocol.choke
       case BT.Unchoke                        => TorrentProtocol.unchoke
@@ -110,7 +112,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
                                                 info ++
                                                 id
     }
-    connection ! Tcp.Write(data)
+    connection ! Tcp.Write(byteMessage)
   }
 
   // https://wiki.theory.org/BitTorrentSpecification
