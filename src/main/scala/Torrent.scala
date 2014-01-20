@@ -15,6 +15,7 @@ case class TorrentFile(length: Int, path: String = "")
 
 object Torrent {
 
+  val Charset = "ISO-8859-1"
   // ByteString converted to String as needed through implicit conversion
   def apply(torrent: Map[String, Any]): Torrent = {
     new Torrent(
@@ -28,7 +29,7 @@ object Torrent {
   }
 
   def fromFile(filename: String): Torrent = {
-    val source = Source.fromFile(filename, "ISO-8859-1")
+    val source = Source.fromFile(filename, Charset)
     val input: BufferedIterator[Byte] = source.map(_.toByte).toIterator.buffered
     val metaInfo = Bencode.decode(input)
     source.close
@@ -45,18 +46,39 @@ class Torrent(
     val createdBy: Option[String],
     val encoding: Option[String]) {
 
+  // Byte form of the string of the info_hash dictionary
   val infoBytes: Array[Byte] = Bencode.encode(info).getBytes
+
+  // SHA-1 hash of the info_hash dictionary needed for handshake
   val infoHash = ByteString.fromArray(sha1(infoBytes))
-  val pieces = info("pieces").asInstanceOf[ByteString]
+
+  // Provided SHA-1 hash of all pieces concatenated together
+  val piecesHash = info("pieces").asInstanceOf[ByteString]
+
+  // Number of bytes in each piece
   val pieceLength = info("pieces length").asInstanceOf[Int]
+
+  // Torrent can have single or multiple files
   val fileMode: FileMode = if (info contains "files") Multiple else Single
-  val name = info("name").asInstanceOf[String]
+
+  /**
+   * Can be either the name of the file (Single) or directory for files
+   * (Mutiple).  Gets implicitly converted to a string
+   */
+  val name: String = info("name").asInstanceOf[ByteString]
+
   val files: List[TorrentFile] = fileMode match {
     case Single =>
       List(TorrentFile(info("length").asInstanceOf[Int], name))
     case Multiple =>
       getMultipleFiles
   }
+
+  // Total number of pieces
+  val numPieces = pieces.length / 20
+
+  // Total size of all files in bytes
+  val totalSize = files.foldLeft(0){ (size, file) => size + file.length }
 
   private lazy val getMultipleFiles: List[TorrentFile] = {
     val files = info("files").asInstanceOf[List[Map[String, Any]]]

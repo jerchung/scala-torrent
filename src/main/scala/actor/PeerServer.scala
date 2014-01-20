@@ -27,7 +27,8 @@ class PeerServer extends Actor {
   /**
    * Keep bind call from being sent to IO(Tcp).  According to akka documentation
    * upon actor restart, preStart is called from postRestart by default, so
-   * override it so that the bind call is only sent upon initial actor creation
+   * override it so that the preRestart call is only sent upon initial actor
+   * creation
    */
   override def postRestart(): Unit = {}
 

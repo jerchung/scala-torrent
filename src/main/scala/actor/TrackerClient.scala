@@ -24,10 +24,12 @@ class TrackerClient(val announceUrl: String) extends Actor {
     val optionalParams = List[String]("ip", "numwant", "key", "trackerid")
     val requestParams = neededParams ++ optionalParams
     neededParams.foreach { k =>
-      if (!request.contains(k)) throw new Exception(s"Tracker request params must have value ${k}")
+      if (!request.contains(k)) {
+        throw new Exception(s"Tracker request params must have value ${k}")
+      }
     }
 
-    val getRequestVars = requestParams.foldLeft(List[String]()) {
+    val getRequestVars = requestParams.foldLeft(List[String].empty) {
       case (vars, k) if request.contains(k) =>
         s"""${k}=${request("k")}""" :: vars
     }.mkString("&")

@@ -10,11 +10,11 @@ object PeerManager {
 }
 
 /*
-* Automatically decide which peers to unchoke / choke based on
-* upload rates from connected peers.
-*
-* Also has a block manager to manage read / writes to and from disk
-*/
+ * Automatically decide which peers to unchoke / choke based on
+ * upload rates from connected peers.
+ *
+ * Also has a block manager to manage read / writes to and from disk
+ */
 class PeerManager extends Actor {
 
   val ClientId = "ST"

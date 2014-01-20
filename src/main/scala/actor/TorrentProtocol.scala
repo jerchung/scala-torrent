@@ -60,7 +60,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   // Works for multiple nums of the same size
   def byteStringify(size: Int, nums: Int*): ByteString = {
     val byteStrings: List[ByteString] = nums map { n =>
-      val byteArray = Array.fill[Byte](size)(0)
+      val byteArray = new Array[Byte](size)
       ByteBuffer.wrap(byteArray).putInt(n)
       ByteString.fromArray(byteArray)
     }
@@ -120,44 +120,49 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   def handleReply(data: ByteString): Unit = {
     if (!data.isEmpty) {
       var length: Int = 0
-      var msg = null.asInstanceOf[BT.Reply]
+      var msg: Option[BT.Reply] = None
       if (data.head == 19 && data.slice(1, 20) == TorrentProtocol.protocol) {
         length = 68
-        msg = BT.HandshakeR(
+        msg = Some(BT.HandshakeR(
           infoHash = data.slice(28, 48),
           peerId = data.slice(48, 68))
+        )
       } else {
         length = data.take(4) + 4
         if (length == 4) {
-          msg = BT.KeepAliveR
+          msg = Some(BT.KeepAliveR)
         } else {
-          msg = data(4) match {
-            case 0 => BT.ChokeR
-            case 1 => BT.UnchokeR
-            case 2 => BT.InterestedR
-            case 3 => BT.NotInterestedR
-            case 4 => BT.HaveR(data.slice(5, 9))
-            case 5 => BT.BitfieldR(data.slice(5, length))
-            case 6 => BT.RequestR(
-              index = data.slice(5, 9),
-              offset = data.slice(9, 13),
-              length = data.slice(13, 17))
-            case 7 => BT.PieceR(
-              index = data.slice(5, 9),
-              offset = data.slice(9, 13),
-              block = data.slice(13, length))
-            case 8 => BT.CancelR(
-              index = data.slice(5, 9),
-              offset = data.slice(9, 13),
-              length = data.slice(13, 17))
-            case 9 => BT.PortR(data.slice(5, 7))
-            case _ => BT.InvalidR
-          }
+          msg = Some(parseCommonReply(data))
         }
       }
 
-      listener ! msg
+      listener ! msg.get
       handleReply(data.drop(length))
+    }
+  }
+
+  def parseCommonReply(data: ByteString): BT.Reply = {
+    data(4) match {
+      case 0 => BT.ChokeR
+      case 1 => BT.UnchokeR
+      case 2 => BT.InterestedR
+      case 3 => BT.NotInterestedR
+      case 4 => BT.HaveR(data.slice(5, 9))
+      case 5 => BT.BitfieldR(data.slice(5, length))
+      case 6 => BT.RequestR(
+        index = data.slice(5, 9),
+        offset = data.slice(9, 13),
+        length = data.slice(13, 17))
+      case 7 => BT.PieceR(
+        index = data.slice(5, 9),
+        offset = data.slice(9, 13),
+        block = data.slice(13, length))
+      case 8 => BT.CancelR(
+        index = data.slice(5, 9),
+        offset = data.slice(9, 13),
+        length = data.slice(13, 17))
+      case 9 => BT.PortR(data.slice(5, 7))
+      case _ => BT.InvalidR
     }
   }
 

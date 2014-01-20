@@ -27,26 +27,32 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   implicit val timeout = Timeout(5 seconds)
 
   // Constants
-  val torrent = Torrent.fromFile(fileName)
+  val torrent  = Torrent.fromFile(fileName)
   val ClientID = "ST"
-  val Version = "1000"
-  val ID = s"-${ClientId + Version}-${randomIntString(12)}"
+  val Version  = "1000"
+  val ID       = s"-${ClientId + Version}-${randomIntString(12)}"
+
+  // Interface that reads/writes pieces from/to disk
+  val diskIO: TorrentBytesIO = torrent.fileMode match {
+    case Single   => new SingleFileIO(torrent.files.head)
+    case Multiple => new MultipleFileIO(torrent.files:_*)
+  }
 
   // Spawn needed actor(s)
   val trackerClient = context.actorOf(TrackerClient.props)
-  val server = context.actorOf(PeerServer.props)
-  val blockManager = context.actorOf(FileManager.props(torrent. ))
+  val server        = context.actorOf(PeerServer.props)
+  val fileManager   = context.actorOf(FileManager.props(torrent, diskIO))
 
   // peerId -> ActorRef
   val connectedPeers = mutable.Map[ByteString, ActorRef]()
 
-  // This bitset holds which pieces have been downloaded - starts at 0
-  var downloaded = BitSet.empty
+  // This bitset holds which pieces are done
+  var piecesDone = BitSet.empty
 
-  // Frequency of all pieces - won't delete from here
+  // Frequency of all available pieces
   val allPiecesFreq = mutable.Map[Int, Int]().withDefaultValue(0)
 
-  // Map[pieceIndex, count] to check for frequency for piece picking
+  // Frequency of wanted Pieces hashed by index
   val wantedPiecesFreq = mutable.Map[Int, Int]().withDefaultValue(0)
 
   def receive = {
@@ -75,8 +81,8 @@ class TorrentClient(id: String, fileName: String) extends Actor {
         wantedPiecesFreq(i) -= 1
         if (wantedPiecesFreq(i) <= 0) { wantedPiecesFreq -= i} // Remove key
       }
-    case BlockDownloaded(i) =>
-      downloaded += i
+    case PieceDone(i) =>
+      piecesDone += i
       wantedPiecesFreq -= i
       broadcast(BT.Have(i))
   }
