@@ -4,6 +4,7 @@ import ActorMessage.{ PeerM, BT }
 import akka.actor.{ Actor, ActorRef, Props, PoisonPill }
 import akka.io.Tcp
 import akka.util.ByteString
+import akka.util.ByteStringBuilder
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import scala.collection.immutable.BitSet
@@ -51,11 +52,27 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   // Import the implicit conversions
   import TorrentProtocol.{ ByteStringToInt, ByteStringToLong }
 
+  // Will send messages to this actor
+  var listener: ActorRef = _
+
+  // This is here so that the ByteString reply can be converted to the
+  // appropriate type
   class ConvertibleByteString(bytes: ByteString) {
 
-    // Must be used on ByteStrings of length 4 due of buffer underflow
+    // This stuff has to be fast so I'm using bit shifts etc.
     def toInt: Int = {
-      ByteBuffer.wrap(bytes.toArray).getInt
+
+      def toIntHelper(bytes: ByteString, value: Int = 0, idx: Int = 0): Int = {
+        if (bytes.isEmpty) {
+          value
+        } else {
+          val byte = bytes.head
+          val bytesVal = (byte & 0xFF) << (4 - 1 - idx) * 8
+          toIntHelper(bytes.drop(1), value + bytesVal, idx + 1)
+        }
+      }
+
+      toIntHelper(bytes)
     }
 
     // Gonna have to do some actual bit arithmetic :\
@@ -92,18 +109,24 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
     new ConvertibleByteString(bytes)
   }
 
-  var listener: ActorRef = _
-
   // Take in an int and the # of bytes it should contain, return the
   // corresponding ByteString of the int with appropriate leading 0s
   // Works for multiple nums of the same size
+  // Don't use ByteBuffer since I need speed.
   def byteStringify(size: Int, nums: Int*): ByteString = {
-    val byteStrings: List[ByteString] = nums map { n =>
-      val byteArray = new Array[Byte](size)
-      ByteBuffer.wrap(byteArray).putInt(n)
-      ByteString.fromArray(byteArray)
+
+    val byteSize = 8
+    val builder = ByteString.newBuilder
+
+    def bytesHelper(num: Int, idx: Int = 0): Unit = {
+      if (count < size) {
+        builder += (num >> (byteSize * idx)) & 0xFF
+        bytesHelper(num, idx + 1)
+      }
     }
-    byteStrings reduceLeft { (acc, cur) => acc ++ cur }
+
+    nums foreach { n => bytesHelper(n) }
+    builder.result
   }
 
   def receive = {
