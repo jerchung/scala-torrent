@@ -59,6 +59,8 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   // appropriate type
   class ConvertibleByteString(bytes: ByteString) {
 
+    val ByteSize = 8
+
     // This stuff has to be fast so I'm using bit shifts etc.
     def toInt: Int = {
 
@@ -67,7 +69,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
           value
         } else {
           val byte = bytes.head
-          val bytesVal = (byte & 0xFF) << (4 - 1 - idx) * 8
+          val bytesVal = (byte & 0xFF) << ((4 - 1 - idx) * ByteSize)
           toIntHelper(bytes.drop(1), value + bytesVal, idx + 1)
         }
       }
@@ -77,32 +79,23 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
 
     // Gonna have to do some actual bit arithmetic :\
     def toBitSet(bytes: ByteString): BitSet = {
-
-      // This is some lowlevel bit shit to convert a ByteString to a BitSet
-      def buildBitSet(bytes: ByteString, builder: Builder[Int, BitSet], dist: Int): BitSet = {
-        if (bytes.isEmpty) {
-          builder.result
-        } else {
-          var byte = bytes.head & 0xFF
-          var off = 7
-          while (byte != 0 ) {
-            val leastSigBit = byte & 0x01
-            leastSigBit match {
-              case 1 => builder += dist - off
-              case _ =>
-            }
-            off -= 1
-            byte >>= 1
-          }
-          buildBitSet(bytes.drop(1), builder, dist - 8)
-        }
-      }
-
-      val bitfieldLength = bytes.length * 8
       val builder = BitSet.newBuilder
-      buildBitSet(bytes, builder, bitfieldLength - 1)
-
+      var dist = bytes.length * ByteSize - 1
+      for {
+        byte <- bytes
+        maskedByte = (byte & 0xFF)
+        off <- (7 to 0 by -1)
+        bit = (maskedByte >> off) & 0x01
+      } yield {
+        bit match {
+          case 1 => builder += dist
+          case _ =>
+        }
+        dist -= 1
+      }
+      builder.result
     }
+
   }
 
   implicit def isConvertible(bytes: ByteString): ConvertibleByteString = {
@@ -114,18 +107,17 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   // Works for multiple nums of the same size
   // Don't use ByteBuffer since I need speed.
   def byteStringify(size: Int, nums: Int*): ByteString = {
-
     val byteSize = 8
     val builder = ByteString.newBuilder
+    var idx = 0
 
-    def bytesHelper(num: Int, idx: Int = 0): Unit = {
-      if (count < size) {
-        builder += (num >> (byteSize * idx)) & 0xFF
-        bytesHelper(num, idx + 1)
-      }
+    for {
+      n <- nums
+      idx <- 0 until size
+    } yield {
+      builder += ((n >> (byteSize * (4 - 1 - idx))) & 0xFF).asInstanceOf[Byte]
     }
 
-    nums foreach { n => bytesHelper(n) }
     builder.result
   }
 
