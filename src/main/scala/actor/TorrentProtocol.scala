@@ -87,10 +87,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
         off <- (7 to 0 by -1)
         bit = (maskedByte >> off) & 0x01
       } yield {
-        bit match {
-          case 1 => builder += dist
-          case _ =>
-        }
+        if (bit == 1) builder += dist
         dist -= 1
       }
       builder.result
