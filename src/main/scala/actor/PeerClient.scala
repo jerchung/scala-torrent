@@ -106,10 +106,10 @@ class PeerClient(info: Peer, protocol: ActorRef, fileManager: ActorRef, states: 
   def updatePeerAvailable(msg: BT.UpdateR): Unit = {
     msg match {
       case BT.BitfieldR(bitfield) =>
-        peerHas |= BitSet.fromBitMask(Array(bitfield))
+        peerHas |= bitfield
         parent ! Available(Right(peerHas))
       case BT.HaveR(index) =>
-        peerHas |= BitSet(index)
+        peerHas += index
         parent ! Available(Left(index))
     }
   }

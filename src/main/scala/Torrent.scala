@@ -17,6 +17,7 @@ object Torrent {
 
   val Charset = "ISO-8859-1"
   val HashAlgo = "SHA-1"
+
   // ByteString converted to String as needed through implicit conversion
   def apply(torrent: Map[String, Any]): Torrent = {
     new Torrent(

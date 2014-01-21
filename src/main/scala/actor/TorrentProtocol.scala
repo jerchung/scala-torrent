@@ -14,16 +14,6 @@ object TorrentProtocol {
     Props(classOf[TorrentProtocol], connection)
   }
 
-  // Implicitly convert to Int when taking slices of a ByteString response and
-  // parsing it to a TCP BitTorrent Exchange message
-  implicit def ByteStringToInt(data: ByteString): Int = {
-    ByteBuffer.wrap(data.toArray).getInt
-  }
-
-  implicit def ByteStringToLong(data: ByteString): Long = {
-    ByteBuffer.wrap(data.toArray).getLong
-  }
-
   // ByteString prefix of peer messages which stay constant
   lazy val keepAlive = ByteString(0, 0, 0, 0)
   lazy val choke = ByteString(0, 0, 0, 1, 0)
@@ -48,12 +38,59 @@ object TorrentProtocol {
     ByteString.fromArray(byteArray)
   }
 
+  // Just creating the prefix for ByteString
+  def piece(length: Int): ByteString = {
+    val byteArray = ByteBuffer.allocate(4).putInt(length + 9).array
+    ByteString.fromArray(byteArray) ++ ByteString(7)
+  }
+
 }
 
 class TorrentProtocol(connection: ActorRef) extends Actor {
 
   // Import the implicit conversions
   import TorrentProtocol.{ ByteStringToInt, ByteStringToLong }
+
+  class ConvertibleByteString(bytes: ByteString) {
+
+    // Must be used on ByteStrings of length 4 due of buffer underflow
+    def toInt: Int = {
+      ByteBuffer.wrap(bytes.toArray).getInt
+    }
+
+    // Gonna have to do some actual bit arithmetic :\
+    def toBitSet(bytes: ByteString): BitSet = {
+
+      // This is some lowlevel bit shit to convert a ByteString to a BitSet
+      def buildBitSet(bytes: ByteString, builder: Builder[Int, BitSet], dist: Int): BitSet = {
+        if (bytes.isEmpty) {
+          builder.result
+        } else {
+          var byte = bytes.head & 0xFF
+          var off = 7
+          while (byte != 0 ) {
+            val leastSigBit = byte & 0x01
+            leastSigBit match {
+              case 1 => builder += dist - off
+              case _ =>
+            }
+            off -= 1
+            byte >>= 1
+          }
+          buildBitSet(bytes.drop(1), builder, dist - 8)
+        }
+      }
+
+      val bitfieldLength = bytes.length * 8
+      val builder = BitSet.newBuilder
+      buildBitSet(bytes, builder, bitfieldLength - 1)
+
+    }
+  }
+
+  implicit def isConvertible(bytes: ByteString): ConvertibleByteString = {
+    new ConvertibleByteString(bytes)
+  }
 
   var listener: ActorRef = _
 
@@ -101,7 +138,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
                                                 byteStringify(4, index)
       case BT.Request(index, offset, length) => TorrentProtocol.request ++
                                                 byteStringify(4, index, offset, length)
-      case BT.Piece(index, offset, block)    => ByteString(0, 0, 0, 9 + block.length, 7) ++
+      case BT.Piece(index, offset, block)    => TorrentProtocol.piece(length) ++
                                                 byteStringify(4, index, offset) ++
                                                 block
       case BT.Cancel(index, offset, length)  => TorrentProtocol.cancel ++
@@ -134,7 +171,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
         if (length == 4) {
           msg = Some(BT.KeepAliveR)
         } else {
-          msg = Some(parseCommonReply(data))
+          msg = Some(parseCommonReply(data, length))
         }
       }
 
@@ -143,27 +180,28 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
     }
   }
 
-  def parseCommonReply(data: ByteString): BT.Reply = {
+  // TODO - PUT THE IMPLICIT toInt, toLong, toBitSet calls here
+  def parseCommonReply(data: ByteString, length: Int): BT.Reply = {
     data(4) match {
       case 0 => BT.ChokeR
       case 1 => BT.UnchokeR
       case 2 => BT.InterestedR
       case 3 => BT.NotInterestedR
-      case 4 => BT.HaveR(data.slice(5, 9))
-      case 5 => BT.BitfieldR(data.slice(5, length))
+      case 4 => BT.HaveR(data.slice(5, 9).toInt)
+      case 5 => BT.BitfieldR(data.slice(5, length).toBitSet)
       case 6 => BT.RequestR(
-        index = data.slice(5, 9),
-        offset = data.slice(9, 13),
-        length = data.slice(13, 17))
+        index = data.slice(5, 9).toInt,
+        offset = data.slice(9, 13).toInt,
+        length = data.slice(13, 17).toInt)
       case 7 => BT.PieceR(
-        index = data.slice(5, 9),
-        offset = data.slice(9, 13),
-        block = data.slice(13, length))
+        index = data.slice(5, 9).toInt,
+        offset = data.slice(9, 13).toInt,
+        block = data.slice(13, length).toInt)
       case 8 => BT.CancelR(
-        index = data.slice(5, 9),
-        offset = data.slice(9, 13),
-        length = data.slice(13, 17))
-      case 9 => BT.PortR(data.slice(5, 7))
+        index = data.slice(5, 9).toInt,
+        offset = data.slice(9, 13).toInt,
+        length = data.slice(13, 17).toInt)
+      case 9 => BT.PortR(data.slice(5, 7)) //Figure what to do with this in terms of int conversion later
       case _ => BT.InvalidR
     }
   }

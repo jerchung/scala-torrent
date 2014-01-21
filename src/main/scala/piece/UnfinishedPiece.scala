@@ -19,6 +19,10 @@ class UnfinishedPiece(
   def insert(offset: Int, block: ByteString): Piece = {
     val byteArray = block.toArray
     val numBytes = byteArray.length
+    if (offset + numBytes > size) {
+      throw new Exception("Out of bounds insertion - block will go outside " +
+        "bounds of piece size")
+    }
     buffer.put(block, offset, numBytes)
     bytesWritten += numBytes
 

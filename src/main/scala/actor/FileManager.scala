@@ -36,7 +36,7 @@ class FileManager(torrent: Torrent) extends Actor {
   val cachedPieces = new LruMap[Int, CachedPiece](10)
 
   // Allows pieces to read/write from disk
-  val diskIO = torrent.fileMode match {
+  val diskIO: TorrentBytesIO = torrent.fileMode match {
     case Single   => new SingleFileIO
     case Multiple => new MultipleFileIO
   }
@@ -87,18 +87,19 @@ class FileManager(torrent: Torrent) extends Actor {
 
   // Gets the data requested and also has caching logic
   def getBlock(index: Int, offset: Int, length: Int): Unit = {
-    val byteString: Option[ByteString] = if (cachedPieces contains index) {
-      val data: Array[Byte] = cachedPieces(index).data
-      Some(ByteString.fromArray(data, offset, length))
-    } else {
-      pieces(index) match {
-        case p: FinishedPiece =>
-          val data: Array[Byte] = p.getData.array
-          cachedPieces(index) += CachedPiece(index, p.size, p.hash, data)
-          Some(ByteString.fromArray(data, offset, length))
-        case _ => None
+    val byteString: Option[ByteString] =
+      if (cachedPieces contains index) {
+        val data: Array[Byte] = cachedPieces(index).data
+        Some(ByteString.fromArray(data, offset, length))
+      } else {
+        pieces(index) match {
+          case p: FinishedPiece =>
+            val data: Array[Byte] = p.getData.array
+            cachedPieces(index) += CachedPiece(index, p.size, p.hash, data)
+            Some(ByteString.fromArray(data, offset, length))
+          case _ => None
+        }
       }
-    }
     byteString map { b => sender ! BT.Piece(index, offset, b) }
   }
 
