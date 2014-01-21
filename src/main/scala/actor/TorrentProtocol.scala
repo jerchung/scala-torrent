@@ -4,7 +4,6 @@ import ActorMessage.{ PeerM, BT }
 import akka.actor.{ Actor, ActorRef, Props, PoisonPill }
 import akka.io.Tcp
 import akka.util.ByteString
-import akka.util.ByteStringBuilder
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import scala.collection.immutable.BitSet
@@ -52,6 +51,8 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   // Import the implicit conversions
   import TorrentProtocol.{ ByteStringToInt, ByteStringToLong }
 
+  val ByteSize = 8
+
   // Will send messages to this actor
   var listener: ActorRef = _
 
@@ -59,17 +60,16 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   // appropriate type
   class ConvertibleByteString(bytes: ByteString) {
 
-    val ByteSize = 8
-
     // This stuff has to be fast so I'm using bit shifts etc.
     def toInt: Int = {
+      val size = bytes.length
 
       def toIntHelper(bytes: ByteString, value: Int = 0, idx: Int = 0): Int = {
         if (bytes.isEmpty) {
           value
         } else {
           val byte = bytes.head
-          val bytesVal = (byte & 0xFF) << ((4 - 1 - idx) * ByteSize)
+          val bytesVal = (byte & 0xFF) << ((size - 1 - idx) * ByteSize)
           toIntHelper(bytes.drop(1), value + bytesVal, idx + 1)
         }
       }
@@ -80,12 +80,12 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
     // Gonna have to do some actual bit arithmetic :\
     def toBitSet(bytes: ByteString): BitSet = {
       val builder = BitSet.newBuilder
-      var dist = bytes.length * ByteSize - 1
+      var distance = bytes.length * ByteSize - 1
       for {
         byte <- bytes
         maskedByte = (byte & 0xFF)
-        off <- (7 to 0 by -1)
-        bit = (maskedByte >> off) & 0x01
+        offset <- (ByteSize - 1 to 0 by -1)
+        bit = (maskedByte >> offset) & 0x01
       } yield {
         if (bit == 1) builder += dist
         dist -= 1
@@ -104,15 +104,14 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   // Works for multiple nums of the same size
   // Don't use ByteBuffer since I need speed.
   def byteStringify(size: Int, nums: Int*): ByteString = {
-    val byteSize = 8
     val builder = ByteString.newBuilder
-    var idx = 0
 
     for {
       n <- nums
       idx <- 0 until size
     } yield {
-      builder += ((n >> (byteSize * (4 - 1 - idx))) & 0xFF).asInstanceOf[Byte]
+      val shiftBy = ByteSize * (size - 1 - idx)
+      builder += ((n >> shiftBy) & 0xFF).asInstanceOf[Byte]
     }
 
     builder.result
