@@ -9,8 +9,8 @@ class UnfinishedPiece(
     writer: TorrentBytesIO)
     extends Piece {
 
-  // Important for this to be lazy since then not all pieces get memory
-  // allocated to them at the beginning, thus saving memory
+  // Important for this to be lazy so that not all pieces get memory
+  // allocated to them at the beginning upon initialization, thus saving memory
   private lazy val blocks: ByteBuffer = ByteBuffer.allocate(size)
 
   private val md = MessageDigest.getInstance("SHA-1")

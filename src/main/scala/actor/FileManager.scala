@@ -38,7 +38,7 @@ class FileManager(torrent: Torrent) extends Actor {
   // Allows pieces to read/write from disk
   val diskIO: TorrentBytesIO = torrent.fileMode match {
     case Single   => new SingleFileIO
-    case Multiple => new MultipleFileIO
+    case Multiple => new MultiFileIO
   }
 
   // Last piece may not be the same size as the others.

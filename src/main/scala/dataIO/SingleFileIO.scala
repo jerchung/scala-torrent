@@ -12,9 +12,8 @@ class SingleFileIO(name: String, pieceSize: Int) extends TorrentBytesIO {
   val raf: RandomAccessFile = new RandomAccessFile(name, "rw")
   val fc: FileChannel = raf.getChannel
 
-  override def read(index: Int, offset: Int, length: Int): ByteBuffer = {
-
-    val totalOffset = index * pieceSize + offset
+  override def read(index: Int, length: Int): ByteBuffer = {
+    val totalOffset = index * pieceSize
     fc.position(totalOffset)
     val bytes = ByteBuffer.allocate(length)
 
@@ -34,8 +33,8 @@ class SingleFileIO(name: String, pieceSize: Int) extends TorrentBytesIO {
     bytes
   }
 
-  override def write(src: ByteBuffer, index: Int, offset: Int, length: Int): Int = {
-    val totalOffset = index * pieceSize + offset
+  override def write(src: ByteBuffer, index: Int, length: Int): Int = {
+    val totalOffset = index * pieceSize
     fc.position(totalOffset)
     val done = fc.write(src, totalOffset, length)
     if (done < length)
