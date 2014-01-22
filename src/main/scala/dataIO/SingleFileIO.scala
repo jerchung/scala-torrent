@@ -38,14 +38,29 @@ class SingleFileIO(
     bytes
   }
 
-  override def write(src: ByteBuffer, index: Int, length: Int): Int = {
+  def blockRead(offset: Int, length: Int): ByteBuffer = {
+    fc.position(offset)
+    val bytes = ByteBuffer.allocate(length)
+    val done = fc.read(bytes, 0, length)
+    if (done < length) {
+      throw new Exception("Disk read underflow reading")
+    }
+    bytes
+  }
+
+  override def write(src: ByteBuffer, index: Int): Int = {
     val totalOffset = index * pieceSize
-    fc.position(totalOffset)
-    val done = fc.write(src, totalOffset, length)
-    if (done < length)
+    val length = src.remaining
+    blockWrite(src, totalOffset, length)
+  }
+
+  def blockWrite(src: ByteBuffer, offset: Int, length: Int): Int = {
+    src.limit(src.limit + length)
+    val done = fc.write(src, offset)
+    if (done < length) {
       throw new Exception("Disk writing underflow error")
-    else
-      done
+    }
+    done
   }
 
 }

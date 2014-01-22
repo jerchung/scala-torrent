@@ -10,31 +10,47 @@ class MultiFileIO(pieceSize: Int, files: List[TorrentFile]) {
   case class FileOffset(file: SingleFileIO, offset: Int, length: Int)
 
   def affectedFiles(index: Int, length: Int): List[SingleFileIO] = {
+    val targetStart = index * pieceSize
+    val targetStop = targetStart + length
 
     @tailrec
     def getAffectedFiles(
         files: List[SingleFileIO],
-        start: Int,
-        buffer: ListBuffer[SingleFileIO]): List[SingleFileIO] = {
+        pos: Int,
+        buffer: ListBuffer[FileOffset]): List[FileOffset] = {
       files match {
         case Nil => buffer.toList
-        case file :: moreFiles =>
-          val end = start + file.size
-          if (end < targetStart)
-            getAffectedFiles(moreFiles, end, buffer)
-          else if (start >= targetStop)
+        case f :: more =>
+          val end = pos + f.size
+          if (end < targetStart) {
+            getAffectedFiles(more, end, buffer)
+          } else if (pos >= targetStop) {
             buffer.toList
-          else
-            getAffectedFiles(moreFiles, end,
-             buffer += FileOffset(file, ))
-
+          } else {
+            val offset = if (targetStart - pos > 0) pos else 0
+            val readLength = math.min(f.size - offset, targetStop - pos)
+            val fileOffset = FileOffset(f, offset, readLength)
+            getAffectedFiles(more, end, buffer += fileOffset)
+          }
       }
     }
 
-    getAffectedFiles(files, 0, mutable.ListBuffer[SingleFileIO]())
+    getAffectedFiles(ioFiles, 0, mutable.ListBuffer[SingleFileIO]())
   }
 
   override def read(index: Int, length: Int): ByteBuffer = {
+    val relevantFiles = affectedFiles(index, length)
+    val bytes = ByteBuffer.allocate(length)
+    relevantFiles foreach { f =>
+      bytes.put(f.file.blockRead(f.offset, f.length))
+    }
+    bytes
+  }
 
+  override def write(src: ByteBuffer, index: Int): Int {
+    val length = src.remaining
+    val relevantFiles = affectedFiles(index, length)
+    relevantFiles foreach { f => f.blockWrite(src, f.offset, f.length) }
+    length
   }
 }
