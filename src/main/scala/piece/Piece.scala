@@ -10,4 +10,4 @@ trait Piece {
 
 case class InvalidPiece(index: Int, size: Int, hash: ByteString) extends Piece
 
-case class CachedPiece(index: Int, size: Int, hash: ByteString, data: Array[Byte]) extends Piece
+case class InMemPiece(index: Int, size: Int, hash: ByteString, data: Array[Byte]) extends Piece

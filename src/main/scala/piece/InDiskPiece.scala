@@ -2,7 +2,7 @@ package org.jerchung.torrent.piece
 
 import akka.util.ByteString
 
-class FinishedPiece(
+class InDiskPiece(
     val index: Int,
     val size: Int,
     val hash: ByteString,

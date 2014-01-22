@@ -6,6 +6,7 @@ import akka.io.Tcp
 import akka.util.ByteString
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
+import org.jerchung.torrent.convert.Convert._
 import scala.collection.immutable.BitSet
 
 object TorrentProtocol {
@@ -51,53 +52,8 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   // Import the implicit conversions
   import TorrentProtocol.{ ByteStringToInt, ByteStringToLong }
 
-  val ByteSize = 8
-
   // Will send messages to this actor
   var listener: ActorRef = _
-
-  // This is here so that the ByteString reply can be converted to the
-  // appropriate type
-  class ConvertibleByteString(bytes: ByteString) {
-
-    // This stuff has to be fast so I'm using bit shifts etc.
-    def toInt: Int = {
-      val size = bytes.length
-
-      def toIntHelper(bytes: ByteString, value: Int = 0, idx: Int = 0): Int = {
-        if (bytes.isEmpty) {
-          value
-        } else {
-          val byte = bytes.head
-          val bytesVal = (byte & 0xFF) << ((size - 1 - idx) * ByteSize)
-          toIntHelper(bytes.drop(1), value + bytesVal, idx + 1)
-        }
-      }
-
-      toIntHelper(bytes)
-    }
-
-    // Gonna have to do some actual bit arithmetic :\
-    def toBitSet(bytes: ByteString): BitSet = {
-      val builder = BitSet.newBuilder
-      var distance = bytes.length * ByteSize - 1
-      for {
-        byte <- bytes
-        maskedByte = (byte & 0xFF)
-        offset <- (ByteSize - 1 to 0 by -1)
-        bit = (maskedByte >> offset) & 0x01
-      } yield {
-        if (bit == 1) builder += dist
-        dist -= 1
-      }
-      builder.result
-    }
-
-  }
-
-  implicit def isConvertible(bytes: ByteString): ConvertibleByteString = {
-    new ConvertibleByteString(bytes)
-  }
 
   // Take in an int and the # of bytes it should contain, return the
   // corresponding ByteString of the int with appropriate leading 0s
@@ -105,15 +61,13 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   // Don't use ByteBuffer since I need speed.
   def byteStringify(size: Int, nums: Int*): ByteString = {
     val builder = ByteString.newBuilder
-
     for {
       n <- nums
       idx <- 0 until size
     } yield {
-      val shiftBy = ByteSize * (size - 1 - idx)
-      builder += ((n >> shiftBy) & 0xFF).asInstanceOf[Byte]
+      val shift = ByteSize * (size - 1 - idx)
+      builder += ((n >> shift) & 0xFF).asInstanceOf[Byte]
     }
-
     builder.result
   }
 
@@ -178,7 +132,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
           peerId = data.slice(48, 68))
         )
       } else {
-        length = data.take(4) + 4
+        length = data.take(4).toInt + 4
         if (length == 4) {
           msg = Some(BT.KeepAliveR)
         } else {
@@ -212,7 +166,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
         index = data.slice(5, 9).toInt,
         offset = data.slice(9, 13).toInt,
         length = data.slice(13, 17).toInt)
-      case 9 => BT.PortR(data.slice(5, 7)) //Figure what to do with this in terms of int conversion later
+      case 9 => BT.PortR(data.slice(5, 7).toInt)
       case _ => BT.InvalidR
     }
   }

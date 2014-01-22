@@ -33,7 +33,7 @@ class FileManager(torrent: Torrent) extends Actor {
   val pieceHashes = torrent.pieceHashes
 
   // Cache map for quick piece access (pieceIndex -> Piece)
-  val cachedPieces = new LruMap[Int, CachedPiece](10)
+  val cachedPieces = new LruMap[Int, InMemPiece](10)
 
   // Allows pieces to read/write from disk
   val diskIO: TorrentBytesIO = torrent.fileMode match {
@@ -74,8 +74,8 @@ class FileManager(torrent: Torrent) extends Actor {
   // caching / invalid / finished piece logic
   def insertBlock(piece: UnfinishedPiece, index: Int, offset: Int, block: ByteString): Unit = {
     piece.insert(offset, block) match {
-      case p @ CachedPiece(index, size, hash, data) =>
-        pieces(index) = new FinishedPiece(index, size, hash, diskIO)
+      case p @ InMemPiece(index, size, hash, data) =>
+        pieces(index) = new InDiskPiece(index, size, hash, diskIO)
         cachedPieces(index) = p
         parent ! PieceDone(index)
       case InvalidPiece(index, size, hash) =>
@@ -93,9 +93,9 @@ class FileManager(torrent: Torrent) extends Actor {
         Some(ByteString.fromArray(data, offset, length))
       } else {
         pieces(index) match {
-          case p: FinishedPiece =>
+          case p: InDiskPiece =>
             val data: Array[Byte] = p.getData.array
-            cachedPieces(index) += CachedPiece(index, p.size, p.hash, data)
+            cachedPieces(index) += InMemPiece(index, p.size, p.hash, data)
             Some(ByteString.fromArray(data, offset, length))
           case _ => None
         }
