@@ -3,6 +3,7 @@ package org.jerchung.torrent.actor.message
 import akka.actor.ActorRef
 import akka.util.ByteString
 import scala.collection.BitSet
+import java.net.InetSocketAddress
 
 // Tracker Client
 object TrackerM {
@@ -13,7 +14,7 @@ object TrackerM {
 // Torrent Client (TorrentM (TorrentMessage))
 object TorrentM {
   case class Start(filename: String)
-  case class CreatePeer(peerId: ByteString, infoHash: ByteString, protocol: ActorRef)
+  case class CreatePeer(connection:ActorRef, remote: InetSocketAddress, peerId: Option[ByteString] = None)
   case class DisconnectedPeer(peerId: ByteString, peerHas: BitSet)
   case class Available(update: Either[Int, BitSet])
   case class Unavailable(remove: Either[Int, BitSet])

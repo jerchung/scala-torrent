@@ -13,6 +13,7 @@ object PeerServer {
 }
 
 // Listen for new connections made from peers
+// Parent is Torrent Client
 class PeerServer extends Actor {
 
   import context.{ system, become, parent, dispatcher }
@@ -37,30 +38,7 @@ class PeerServer extends Actor {
     case Tcp.CommandFailed(_: Tcp.Bind) => // Binding failed
     case Tcp.Connected(remote, local) =>
       val connection = sender
-      val protocol = context.actorOf(TorrentProtocol.props(connection))
-      parent ! WaitForHandshake.props(protocol)
-  }
-
-}
-
-object WaitForHandshake {
-  def props(protocol: ActorRef): Props = Props(classOf[WaitForHandshake], protocol)
-}
-
-/* Parent must be TorrentClient */
-class WaitForHandshake(protocol: ActorRef) extends Actor {
-
-  import context.parent
-
-  // Register self with TorrentProtocol actor upon intialization
-  override def preStart(): Unit = {
-    protocol ! BT.Listener(self)
-  }
-
-  def receive = {
-    case m @ BT.HandshakeR(infoHash, peerId) =>
-      val peer = parent ? TorrentM.CreatePeer()
-      parent ! PeerClient.props(Peer(peerId, id, infoHash), protocol)
+      parent ! CreatePeer(connection, remote.getHostString, remote.getPort)
   }
 
 }

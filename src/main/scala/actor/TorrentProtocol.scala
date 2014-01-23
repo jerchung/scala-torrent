@@ -55,8 +55,16 @@ object TorrentProtocol {
  */
 class TorrentProtocol(connection: ActorRef) extends Actor {
 
-  // Will send messages to this actor
-  var listener: ActorRef = _
+  override def preStart(): Unit = {
+    connection ! Tcp.Register(self)
+  }
+
+  override def postRestart(): Unit = {}
+
+  def receive: Receive = {
+    case msg: BT.Message => handleMessage(msg)
+    case Tcp.Received(data) => handleReply(data)
+  }
 
   // Take in an int and the # of bytes it should contain, return the
   // corresponding ByteString of the int with appropriate leading 0s
@@ -72,23 +80,6 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
       builder += ((n >> shift) & 0xFF).asInstanceOf[Byte]
     }
     builder.result
-  }
-
-  def receive = {
-    case BT.Listener(actor) =>
-      connection ! Tcp.Register(self)
-      listener = actor
-      context.become(listened)
-      sender ! true
-    case _ => sender ! "Need to set listener first"
-  }
-
-  def listened: Receive = {
-    case msg: BT.Message => handleMessage(msg)
-    case Tcp.Received(data) => handleReply(data)
-    case BT.Listener(actor) =>
-      listener = actor
-      sender ! true
   }
 
   // Handle each type of tcp peer message that client may want to send

@@ -5,37 +5,33 @@ import akka.actor.{ Actor, ActorRef, Props }
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
 import akka.util.Timeout
-import org.jerchung.torrent.actor.PeerClient.{ State, ReplyingHandshake }
 import scala.collection.immutable.BitSet
 import scala.collection.mutable
 import scala.concurrent.duration._
 
-object PeerClient {
-
-  sealed trait State
-  case object Replier extends State
-  case object Initiator extends State
-
-  def props(peer: PeerInfo, protocol: ActorRef, fileManager: ActorRef, states: State*) = {
-    Props(classOf[PeerClient], peer, protocol, fileManager, states)
+object Peer {
+  def props(info: PeerInfo, connection: ActorRef, fileManager: ActorRef): Props = {
+    Props(classOf[Peer], info, connection, fileManager)
   }
 }
 
 // One of these actors per peer
 /* Parent must be Torrent Client */
-class PeerClient(info: PeerInfo, protocol: ActorRef, fileManager: ActorRef, states: State*) extends Actor {
+class Peer(info: PeerInfo, connection: ActorRef, fileManager: ActorRef) extends Actor {
 
   import context.{ system, become, parent, dispatcher }
 
   implicit val timeout = Timeout(5 millis)
 
-  val ip: String           = info.ip
-  val port: Int            = info.port
-  val peerId: ByteString   = info.peerId
-  val ownId: ByteString    = info.ownId
-  val infoHash: ByteString = info.infoHash
-  var iHave: BitSet        = BitSet.empty
-  var peerHas: BitSet      = BitSet.empty
+  val protocol = context.actorOf(TorrentProtocol.props(connection))
+
+  var peerId: Option[ByteString] = info.peerId
+  val ip: String                 = info.ip
+  val port: Int                  = info.port
+  val ownId: ByteString          = info.ownId
+  val infoHash: ByteString       = info.infoHash
+  var iHave: BitSet              = BitSet.empty
+  var peerHas: BitSet            = BitSet.empty
 
   // Need to keep mutable state
   var keepAlive                    = false
@@ -43,30 +39,39 @@ class PeerClient(info: PeerInfo, protocol: ActorRef, fileManager: ActorRef, stat
   var amChoking, peerChoking       = true
   var amInterested, peerInterested = false
 
+  // Depending on if peerId is None or Some, then that dictates whether this
+  // actor initiates a handshake with a peer, or waits for the peer to send a
+  // handshake over
   override def preStart(): Unit = {
-    for {
-      listenerSet <- (protocol ? BT.Listener(self)).mapTo[Boolean]
-      state <- states
-    } yield {
-      state match {
-        case ReplyingHandshake => protocol ! BT.Handshake(infoHash, ownId)
-        case SendingHandshake =>
-      }
+    peerId match {
+      case Some(id) =>
+        protocol ! BT.Handshake(infoHash, id)
+        become(initiatedHandshake)
+      case None =>
+        become(waitingForHandshake)
     }
   }
 
-  // Notify TorrentClient of disconnecting peer with info needed update piece
-  // frequency counts etc.
-  override def postStop(): Unit = {
-    parent ! DisconnectedPeer(peerId, peerHas)
+  def waitingForHandshake: Receive = {
+    case BT.HandshakeR(infoHash, peerId) if (infoHash == this.infoHash) =>
+      protocol ! BT.Handshake(infoHash, ownId)
+      parent ! TorrentM.Register(peerId)
+      this.peerId = Some(peerId)
+      hearteat
+      become(receive)
+    case _ => context stop self
   }
 
-  def replyingHandshake: Receive = {
-    case
+  def initiatedHandshake: Receive = {
+    case BT.Handshake(infoHash, peerId)
+        if (infoHash == this.infoHash && peerId == this.peerId.get) =>
+      parent ! TorrentM.Register(peerId)
+      heartbeat
+      become(receive)
+    case _ => context stop self
   }
 
   def receive = {
-    case PeerM.Handshake => protocol ! BT.Handshake(infoHash, ownId)
     case m: BT.Message   => handleMessage(m)
     case r: BT.Reply     => handleReply(r)
   }
@@ -99,13 +104,7 @@ class PeerClient(info: PeerInfo, protocol: ActorRef, fileManager: ActorRef, stat
       case BT.RequestR(index, offset, length) =>
       case BT.PieceR(index, offset, block)    => fileManager ! Write(index, offset, block)
       case BT.CancelR(index, offset, length)  =>
-      case BT.HandshakeR(infoHash, peerId)    =>
-        if (infoHash != this.infoHash || peerId != this.peerId) {
-          parent ! "Invalid"
-          context stop self
-        } else {
-
-        }
+      case _                                  =>
     }
     immediatePostHandshake = false
   }
@@ -113,8 +112,10 @@ class PeerClient(info: PeerInfo, protocol: ActorRef, fileManager: ActorRef, stat
   def updatePeerAvailable(msg: BT.UpdateR): Unit = {
     msg match {
       case BT.BitfieldR(bitfield) =>
-        peerHas |= bitfield
-        parent ! TorrentM.Available(Right(peerHas))
+        if (immediatePostHandshake) {
+          peerHas |= bitfield
+          parent ! TorrentM.Available(Right(peerHas))
+        }
       case BT.HaveR(index) =>
         peerHas += index
         parent ! TorrentM.Available(Left(index))
