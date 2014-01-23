@@ -2,14 +2,17 @@ package org.jerchung.torrent.actor
 
 import akka.actor.{Actor, ActorRef, Props}
 import akka.util.ByteString
-import java.security.MessageDigest
+import com.twitter.util.LruMap
 import java.io.RandomAccessFile
+import java.security.MessageDigest
+import org.jerchung.torrent.actor.message.BT
+import org.jerchung.torrent.actor.message.FM
+import org.jerchung.torrent.actor.message.TorrentM
 import org.jerchung.torrent.diskIO._
 import org.jerchung.torrent.piece._
 import org.jerchung.torrent.Torrent
 import org.jerchung.torrent.{ Single, Multiple }
 import scala.collection.mutable
-import com.twitter.util.LruMap
 
 object FileManager {
   def props(torrent: Torrent): Props = {
@@ -80,10 +83,10 @@ class FileManager(torrent: Torrent) extends Actor {
       case p @ InMemPiece(idx, off, size, hash, data) =>
         pieces(idx) = new InDiskPiece(idx, off, size, hash, diskIO)
         cachedPieces(idx) = p
-        context.parent ! PieceDone(idx)
+        context.parent ! TorrentM.PieceDone(idx)
       case InvalidPiece(idx, off, size, hash) =>
         pieces(idx) = new UnfinishedPiece(idx, size, hash, diskIO)
-        context.parent ! PieceInvalid(idx)
+        context.parent ! TorrentM.PieceInvalid(idx)
       case _ =>
     }
   }

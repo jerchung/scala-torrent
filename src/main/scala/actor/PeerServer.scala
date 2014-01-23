@@ -1,6 +1,6 @@
 package org.jerchung.torrent.actor
 
-import ActorMessage.{ BT, TorrentM }
+import org.jerchung.torrent.actor.message.{ BT, TorrentM }
 import akka.actor.{ Props, Actor, ActorRef }
 import akka.io.{ IO, Tcp }
 import akka.pattern.ask
@@ -25,7 +25,7 @@ class PeerServer extends Actor {
   }
 
   /**
-   * Keep bind call from being sent to IO(Tcp).  According to akka documentation
+   * Keep bind call from being resent to IO(Tcp).  According to akka documentation
    * upon actor restart, preStart is called from postRestart by default, so
    * override it so that the preRestart call is only sent upon initial actor
    * creation
@@ -50,13 +50,16 @@ object WaitForHandshake {
 /* Parent must be TorrentClient */
 class WaitForHandshake(protocol: ActorRef) extends Actor {
 
+  import context.parent
+
   // Register self with TorrentProtocol actor upon intialization
   override def preStart(): Unit = {
     protocol ! BT.Listener(self)
   }
 
   def receive = {
-    case BT.HandshakeR(infoHash, peerId) =>
+    case m @ BT.HandshakeR(infoHash, peerId) =>
+      val peer = parent ? TorrentM.CreatePeer()
       parent ! PeerClient.props(Peer(peerId, id, infoHash), protocol)
   }
 

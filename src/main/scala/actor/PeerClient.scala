@@ -1,6 +1,6 @@
 package org.jerchung.torrent.actor
 
-import ActorMessage.{ PeerM, BT }
+import org.jerchung.torrent.actor.message.{ PeerM, BT, TorrentM }
 import akka.actor.{ Actor, ActorRef, Props }
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
@@ -13,25 +13,28 @@ import scala.concurrent.duration._
 object PeerClient {
 
   sealed trait State
-  case object ReplyingHandshake extends State
+  case object Replier extends State
+  case object Initiator extends State
 
-  def props(peer: Peer, protocol: ActorRef, fileManager: ActorRef, states: State*) = {
+  def props(peer: PeerInfo, protocol: ActorRef, fileManager: ActorRef, states: State*) = {
     Props(classOf[PeerClient], peer, protocol, fileManager, states)
   }
 }
 
 // One of these actors per peer
 /* Parent must be Torrent Client */
-class PeerClient(info: Peer, protocol: ActorRef, fileManager: ActorRef, states: State*) extends Actor {
+class PeerClient(info: PeerInfo, protocol: ActorRef, fileManager: ActorRef, states: State*) extends Actor {
 
   import context.{ system, become, parent, dispatcher }
 
   implicit val timeout = Timeout(5 millis)
 
+  val ip: String           = info.ip
+  val port: Int            = info.port
   val peerId: ByteString   = info.peerId
   val ownId: ByteString    = info.ownId
   val infoHash: ByteString = info.infoHash
-  var iHave: BitSet        = info.ownAvailable
+  var iHave: BitSet        = BitSet.empty
   var peerHas: BitSet      = BitSet.empty
 
   // Need to keep mutable state
@@ -47,7 +50,7 @@ class PeerClient(info: Peer, protocol: ActorRef, fileManager: ActorRef, states: 
     } yield {
       state match {
         case ReplyingHandshake => protocol ! BT.Handshake(infoHash, ownId)
-        case _ =>
+        case SendingHandshake =>
       }
     }
   }
@@ -56,6 +59,10 @@ class PeerClient(info: Peer, protocol: ActorRef, fileManager: ActorRef, states: 
   // frequency counts etc.
   override def postStop(): Unit = {
     parent ! DisconnectedPeer(peerId, peerHas)
+  }
+
+  def replyingHandshake: Receive = {
+    case
   }
 
   def receive = {
@@ -70,13 +77,13 @@ class PeerClient(info: Peer, protocol: ActorRef, fileManager: ActorRef, states: 
   */
   def handleMessage(message: BT.Message): Unit = {
     message match {
-      case BT.Choke              => amChoking = true
-      case BT.Unchoke            => amChoking = false
-      case BT.Interested         => amInterested = true
-      case BT.NotInterested      => amInterested = false
-      case BT.Have(index)        => iHave += index
-      case BT.Bitfield(bitfield) => iHave = bitfield
-      case _                     =>
+      case BT.Choke                         => amChoking = true
+      case BT.Unchoke                       => amChoking = false
+      case BT.Interested                    => amInterested = true
+      case BT.NotInterested                 => amInterested = false
+      case BT.Have(index)                   => iHave += index
+      case BT.Bitfield(bitfield, numPieces) => iHave = bitfield
+      case _                                =>
     }
     protocol ! message
   }
@@ -107,10 +114,10 @@ class PeerClient(info: Peer, protocol: ActorRef, fileManager: ActorRef, states: 
     msg match {
       case BT.BitfieldR(bitfield) =>
         peerHas |= bitfield
-        parent ! Available(Right(peerHas))
+        parent ! TorrentM.Available(Right(peerHas))
       case BT.HaveR(index) =>
         peerHas += index
-        parent ! Available(Left(index))
+        parent ! TorrentM.Available(Left(index))
     }
   }
 

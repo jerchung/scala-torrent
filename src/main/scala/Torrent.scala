@@ -52,7 +52,7 @@ class Torrent(
   val infoBytes: Array[Byte] = Bencode.encode(info).getBytes
 
   // SHA-1 hash of the info_hash dictionary needed for handshake
-  val infoHash = ByteString.fromArray(sha1(infoBytes))
+  val hashedInfo = ByteString.fromArray(sha1(infoBytes))
 
   // Provided SHA-1 hash of all pieces concatenated together
   val piecesHash = info("pieces").asInstanceOf[ByteString]

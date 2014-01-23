@@ -1,6 +1,6 @@
 package org.jerchung.torrent.actor
 
-import ActorMessage.{ PeerM, BT }
+import org.jerchung.torrent.actor.message.{ PeerM, BT }
 import akka.actor.{ Actor, ActorRef, Props, PoisonPill }
 import akka.io.Tcp
 import akka.util.ByteString
@@ -48,6 +48,11 @@ object TorrentProtocol {
 
 }
 
+/**
+ * This actor servers to translate between ByteStrings and TCP Wire Messages.
+ * The parent of this actor should always be a Peer Actor, thus responses are
+ * send to parent
+ */
 class TorrentProtocol(connection: ActorRef) extends Actor {
 
   // Will send messages to this actor

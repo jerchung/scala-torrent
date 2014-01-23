@@ -2,7 +2,7 @@ package org.jerchung.torrent.actor
 
 import dispatch._, Defaults._
 import org.jerchung.bencode.Bencode
-import ActorMessage.{ TrackerM }
+import org.jerchung.torrent.actor.message.{ TrackerM }
 import akka.actor.{Actor, Props}
 import scala.util.{ Success, Failure }
 

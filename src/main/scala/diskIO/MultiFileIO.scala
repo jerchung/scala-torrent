@@ -3,11 +3,12 @@ package org.jerchung.torrent.diskIO
 import scala.annotation.tailrec
 import scala.collection.mutable
 import java.nio.ByteBuffer
+import org.jerchung.torrent.TorrentFile
 
 class MultiFileIO(pieceSize: Int, files: List[TorrentFile]) extends DiskIO{
 
-  val ioFiles = files map { f => new SingleFileIO(f.path, pieceSize, f.size) }
-  val size = files.foldLeft(0) { (acc, f) => acc + f.size }
+  val ioFiles = files map { f => new SingleFileIO(f.path, pieceSize, f.length) }
+  val size = files.foldLeft(0) { (acc, f) => acc + f.length }
 
   case class FileOffset(file: SingleFileIO, offset: Int, length: Int)
 
