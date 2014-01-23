@@ -2,22 +2,24 @@ package org.jerchung.torrent.diskIO
 
 import scala.annotation.tailrec
 import scala.collection.mutable
+import java.nio.ByteBuffer
 
-class MultiFileIO(pieceSize: Int, files: List[TorrentFile]) {
+class MultiFileIO(pieceSize: Int, files: List[TorrentFile]) extends DiskIO{
 
   val ioFiles = files map { f => new SingleFileIO(f.path, pieceSize, f.size) }
+  val size = files.foldLeft(0) { (acc, f) => acc + f.size }
 
   case class FileOffset(file: SingleFileIO, offset: Int, length: Int)
 
-  def affectedFiles(index: Int, length: Int): List[SingleFileIO] = {
-    val targetStart = index * pieceSize
+  def affectedFiles(offset: Int, length: Int): List[FileOffset] = {
+    val targetStart = offset
     val targetStop = targetStart + length
 
     @tailrec
     def getAffectedFiles(
         files: List[SingleFileIO],
         pos: Int,
-        buffer: ListBuffer[FileOffset]): List[FileOffset] = {
+        buffer: mutable.ListBuffer[FileOffset]): List[FileOffset] = {
       files match {
         case Nil => buffer.toList
         case f :: more =>
@@ -35,22 +37,28 @@ class MultiFileIO(pieceSize: Int, files: List[TorrentFile]) {
       }
     }
 
-    getAffectedFiles(ioFiles, 0, mutable.ListBuffer[SingleFileIO]())
+    getAffectedFiles(ioFiles, 0, new mutable.ListBuffer[FileOffset])
   }
 
-  override def read(index: Int, length: Int): ByteBuffer = {
-    val relevantFiles = affectedFiles(index, length)
-    val bytes = ByteBuffer.allocate(length)
+  override def read(dest: ByteBuffer, offset: Int): ByteBuffer = {
+    val length = dest.remaining
+    val relevantFiles = affectedFiles(offset, length)
     relevantFiles foreach { f =>
-      bytes.put(f.file.blockRead(f.offset, f.length))
+      val fileIO = f.file
+      dest.limit(dest.position + f.length)
+      fileIO.read(dest, f.offset)
     }
-    bytes
+    dest
   }
 
-  override def write(src: ByteBuffer, index: Int): Int {
+  override def write(src: ByteBuffer, offset: Int): Int = {
     val length = src.remaining
-    val relevantFiles = affectedFiles(index, length)
-    relevantFiles foreach { f => f.blockWrite(src, f.offset, f.length) }
+    val relevantFiles = affectedFiles(offset, length)
+    relevantFiles foreach { f =>
+      val fileIO = f.file
+      src.limit(src.position + f.length)
+      fileIO.read(src, f.offset)
+    }
     length
   }
 }

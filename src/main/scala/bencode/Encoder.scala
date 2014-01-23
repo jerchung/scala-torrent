@@ -1,6 +1,7 @@
 package org.jerchung.bencode
 
 import akka.util.ByteString
+import org.jerchung.torrent.Convert._
 
 class Encoder {
 
@@ -17,7 +18,7 @@ class Encoder {
   def encodeInt(value: Int): String = s"i${value}e"
 
   def encodeString(value: ByteString): String =
-    s"""${value.length}:${value.decodeString("ISO-8859-1")}"""
+    s"""${value.length}:${value.toChars}"""
 
   // Map keys must be in alphabetical order
   def encodeMap(value: Map[String, Any]): String =

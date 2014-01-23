@@ -2,7 +2,7 @@ package org.jerchung.bencode
 
 import scala.collection
 import akka.util.ByteString
-import org.jerchung.bencode.ImplicitConversions._
+import org.jerchung.torrent.Convert._
 
 /*
 Implemented using protocol described
@@ -56,7 +56,7 @@ class Decoder {
         resultMap
       case _ =>
         //Implicit conversion takes care of ByteString -> String
-        val key: String = decode(input).asInstanceOf[ByteString]
+        val key = decode(input).asInstanceOf[ByteString].toChars
         val value = decode(input)
         decodeDictionary(input, resultMap + (key -> value))
     }

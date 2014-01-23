@@ -6,8 +6,9 @@ import akka.io.Tcp
 import akka.util.ByteString
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
-import org.jerchung.torrent.convert.Convert._
-import scala.collection.immutable.BitSet
+import org.jerchung.torrent.Convert._
+import org.jerchung.torrent.Constant
+import scala.collection.BitSet
 
 object TorrentProtocol {
 
@@ -34,8 +35,8 @@ object TorrentProtocol {
   def bitfield(bitfield: BitSet, numPieces: Int): ByteString = {
     val bitValue = if (bitfield.isEmpty) 0 else bitfield.toBitMask.head
     val numBytesNeeded = math.ceil(numPieces.toFloat / 8).toInt
-    val buffer = ByteBuffer.allocate(numBytesNeed)
-    val byteArray = buffer.putInt(bitValue)
+    val buffer = ByteBuffer.allocate(numBytesNeeded)
+    val byteArray = buffer.putLong(bitValue).array
     ByteString.fromArray(byteArray)
   }
 
@@ -48,9 +49,6 @@ object TorrentProtocol {
 }
 
 class TorrentProtocol(connection: ActorRef) extends Actor {
-
-  // Import the implicit conversions
-  import TorrentProtocol.{ ByteStringToInt, ByteStringToLong }
 
   // Will send messages to this actor
   var listener: ActorRef = _
@@ -65,7 +63,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
       n <- nums
       idx <- 0 until size
     } yield {
-      val shift = ByteSize * (size - 1 - idx)
+      val shift = Constant.ByteSize * (size - 1 - idx)
       builder += ((n >> shift) & 0xFF).asInstanceOf[Byte]
     }
     builder.result
@@ -103,7 +101,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
                                                 byteStringify(4, index)
       case BT.Request(index, offset, length) => TorrentProtocol.request ++
                                                 byteStringify(4, index, offset, length)
-      case BT.Piece(index, offset, block)    => TorrentProtocol.piece(length) ++
+      case BT.Piece(index, offset, block)    => TorrentProtocol.piece(block.size) ++
                                                 byteStringify(4, index, offset) ++
                                                 block
       case BT.Cancel(index, offset, length)  => TorrentProtocol.cancel ++
@@ -161,7 +159,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
       case 7 => BT.PieceR(
         index = data.slice(5, 9).toInt,
         offset = data.slice(9, 13).toInt,
-        block = data.slice(13, length).toInt)
+        block = data.slice(13, length))
       case 8 => BT.CancelR(
         index = data.slice(5, 9).toInt,
         offset = data.slice(9, 13).toInt,

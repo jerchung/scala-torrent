@@ -1,7 +1,6 @@
 package org.jerchung.torrent.actor
 
 import ActorMessage.{ TorrentM, TrackerM }
-import org.jerchung.torrent.Torrent
 import akka.actor.{Actor, ActorRef, Props}
 import akka.io.{ IO, Tcp }
 import akka.pattern.ask
@@ -11,6 +10,7 @@ import java.net.InetSocketAddress
 import java.net.URLEncoder
 import org.jerchung.bencode.Bencode
 import org.jerchung.bencode.Conversions._
+import org.jerchung.torrent.Torrent
 import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.util.Random
@@ -24,6 +24,8 @@ case class ConnectedPeer(actor: ActorRef, ip: String, port: Int)
 // This actor takes care of the downloading of a *single* torrent
 class TorrentClient(id: String, fileName: String) extends Actor {
 
+  import context.{ dispatcher, system }
+
   implicit val timeout = Timeout(5 seconds)
 
   // Constants
@@ -35,7 +37,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   // Spawn needed actor(s)
   val trackerClient = context.actorOf(TrackerClient.props)
   val server        = context.actorOf(PeerServer.props)
-  val fileManager   = context.actorOf(FileManager.props(torrent)
+  val fileManager   = context.actorOf(FileManager.props(torrent))
 
   // peerId -> ActorRef
   val connectedPeers = mutable.Map.empty[ByteString, ActorRef]
@@ -128,9 +130,9 @@ class TorrentClient(id: String, fileName: String) extends Actor {
       connectionF onSuccess {
         case Tcp.Conected(remote, local) =>
           val connection = sender
-          val protocol =
+          val protocol = context.actorOf(TorrentProtocol.props(connection))
           val peerActor = context.actorOf(PeerClient.props(
-            peerId, torrent.infoHash, connection))
+            peerId, torrent.infoHash, protocol))
           peerActor ! BT.Handshake(infoHash, peerId)
       }
     }
@@ -170,7 +172,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   }
 
   def broadcast(message: Message): Unit = {
-    communicatingPeers foreach { (id, peer) => peer ! message }
+    communicatingPeers foreach { case (id, peer) => peer ! message }
   }
 
 }

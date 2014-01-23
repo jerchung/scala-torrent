@@ -2,7 +2,7 @@ package org.jerchung.torrent.actor
 
 import akka.actor.ActorRef
 import akka.util.ByteString
-import scala.collection.immutable.BitSet
+import scala.collection.BitSet
 
 // Namespace ActorMessage
 object ActorMessage {

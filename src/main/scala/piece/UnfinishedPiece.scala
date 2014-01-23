@@ -1,9 +1,12 @@
 package org.jerchung.torrent.piece
 
 import akka.util.ByteString
+import java.security.MessageDigest
+import java.nio.ByteBuffer
 
 class UnfinishedPiece(
     val index: Int,
+    val offset: Int,
     val size: Int,
     val hash: ByteString,
     writer: TorrentBytesIO)
@@ -11,7 +14,7 @@ class UnfinishedPiece(
 
   // Important for this to be lazy so that not all pieces get memory
   // allocated to them at the beginning upon initialization, thus saving memory
-  private lazy val blocks: ByteBuffer = ByteBuffer.allocate(size)
+  private lazy val buffer: ByteBuffer = ByteBuffer.allocate(size)
 
   private val md = MessageDigest.getInstance("SHA-1")
   private var bytesWritten = 0
@@ -23,15 +26,17 @@ class UnfinishedPiece(
       throw new Exception("Out of bounds insertion - block will go outside " +
         "bounds of piece size")
     }
-    buffer.put(block, offset, numBytes)
+    // Todo -> don't let overlaps result in bytesWritten being updated
+    buffer.position(offset)
+    buffer.put(byteArray)
     bytesWritten += numBytes
 
     if (isComplete && hashMatches) {
-      write(blocks)
-      CachedPiece(index, size, hash, blocks.array)
+      write(buffer)
+      InMemPiece(index, offset, size, hash, buffer.array)
     } else if (isComplete) {
       clear
-      InvalidPiece(index, size, hash)
+      InvalidPiece(index, offset, size, hash)
     } else {
       this
     }
@@ -39,7 +44,7 @@ class UnfinishedPiece(
 
   // This should be called only when piece is ready to be written to disk
   private def write(data: ByteBuffer): Unit = {
-    writer.write(index, offset, data)
+    writer.write(data, offset)
   }
 
   private def isComplete: Boolean = {
@@ -57,6 +62,5 @@ class UnfinishedPiece(
 
   private def clear: Unit = {
     buffer.clear
-    blocks = None
   }
 }
