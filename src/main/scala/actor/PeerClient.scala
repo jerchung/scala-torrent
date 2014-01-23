@@ -16,7 +16,7 @@ object PeerClient {
   case object ReplyingHandshake extends State
 
   def props(peer: Peer, protocol: ActorRef, fileManager: ActorRef, states: State*) = {
-    Props(classOf[PeerClient], peer, protocol, fileManager, state)
+    Props(classOf[PeerClient], peer, protocol, fileManager, states)
   }
 }
 

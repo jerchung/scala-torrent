@@ -27,8 +27,6 @@ object FileManager {
  */
 class FileManager(torrent: Torrent) extends Actor {
 
-  import context.parent
-
   // Important values
   val numPieces   = torrent.numPieces
   val pieceSize   = torrent.pieceSize
@@ -82,10 +80,10 @@ class FileManager(torrent: Torrent) extends Actor {
       case p @ InMemPiece(idx, off, size, hash, data) =>
         pieces(idx) = new InDiskPiece(idx, off, size, hash, diskIO)
         cachedPieces(idx) = p
-        parent ! PieceDone(idx)
+        context.parent ! PieceDone(idx)
       case InvalidPiece(idx, off, size, hash) =>
         pieces(idx) = new UnfinishedPiece(idx, size, hash, diskIO)
-        parent ! PieceInvalid(idx)
+        context.parent ! PieceInvalid(idx)
       case _ =>
     }
   }
