@@ -18,8 +18,6 @@ class PeerServer extends Actor {
 
   import context.{ system, become, parent, dispatcher }
 
-  implicit val timeout = Timeout(5 seconds)
-
   override def preStart(): Unit = {
     // Figure out which port to bind to later - right now 0 defaults to random
     IO(Tcp) ! Tcp.Bind(self, new InetSocketAddress("localhost", 0))
@@ -31,14 +29,13 @@ class PeerServer extends Actor {
    * override it so that the preRestart call is only sent upon initial actor
    * creation
    */
-  override def postRestart(): Unit = {}
+  override def postRestart(reason: Throwable): Unit = {}
 
   def receive = {
     case b @ Tcp.Bound(localAddress) => // Implement logging later
     case Tcp.CommandFailed(_: Tcp.Bind) => // Binding failed
     case Tcp.Connected(remote, local) =>
-      val connection = sender
-      parent ! CreatePeer(connection, remote.getHostString, remote.getPort)
+      parent ! TorrentM.CreatePeer(sender, remote)
   }
 
 }

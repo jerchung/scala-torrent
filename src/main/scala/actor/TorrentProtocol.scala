@@ -55,11 +55,13 @@ object TorrentProtocol {
  */
 class TorrentProtocol(connection: ActorRef) extends Actor {
 
+  import context.parent
+
   override def preStart(): Unit = {
     connection ! Tcp.Register(self)
   }
 
-  override def postRestart(): Unit = {}
+  override def postRestart(reason: Throwable): Unit = {}
 
   def receive: Receive = {
     case msg: BT.Message => handleMessage(msg)
@@ -72,10 +74,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
   // Don't use ByteBuffer since I need speed.
   def byteStringify(size: Int, nums: Int*): ByteString = {
     val builder = ByteString.newBuilder
-    for {
-      n <- nums
-      idx <- 0 until size
-    } yield {
+    for (n <- nums; idx <- 0 until size) {
       val shift = Constant.ByteSize * (size - 1 - idx)
       builder += ((n >> shift) & 0xFF).asInstanceOf[Byte]
     }
@@ -134,7 +133,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
         }
       }
 
-      listener ! msg.get
+      parent ! msg.get
       handleReply(data.drop(length))
     }
   }
