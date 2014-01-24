@@ -22,12 +22,32 @@ object TorrentProtocol {
   lazy val unchoke = ByteString(0, 0, 0, 1, 1)
   lazy val interested = ByteString(0, 0, 0, 1, 2)
   lazy val notInterested = ByteString(0, 0, 0, 1, 3)
-  lazy val have = ByteString(0, 0, 0, 5, 4)
-  lazy val request = ByteString(0, 0, 0, 13, 6)
-  lazy val cancel = ByteString(0, 0, 0, 13, 8)
-  lazy val port = ByteString(0, 0, 0, 3, 9)
   lazy val protocol = ByteString.fromString("BitTorrent protocol")
-  lazy val handshake = ByteString(19) ++ protocol
+
+  def have(idx: Int): ByteString = {
+    ByteString(0, 0, 0, 5, 4) ++ byteStringify(4, idx)
+  }
+
+  def request(idx: Int, off: Int, len: Int): ByteString = {
+    ByteString(0, 0, 0, 13, 6) ++ byteStringify(4, idx, off, len)
+  }
+
+  def piece(length: Int, block: ByteString): ByteString = {
+    val byteArray = ByteBuffer.allocate(4).putInt(length + 9).array
+    ByteString.fromArray(byteArray) ++ ByteString(7) ++ block
+  }
+
+  def cancel(idx: Int, off: Int, len: Int): ByteString = {
+    ByteString(0, 0, 0, 13, 8) ++ byteStringify(4, idx, off, len)
+  }
+
+  def port(port: Int): ByteString = {
+    ByteString(0, 0, 0, 3, 9) ++ byteStringify(2, port)
+  }
+
+  def handshake(info: ByteString, id: ByteString): ByteString = {
+    ByteString(19) ++ protocol ++ info ++ id
+  }
 
   // Use number of pieces a particular torrent has to generate the bitfield
   // Bytes needed is numPieces / 8 since it's 8 bits per byte
@@ -40,10 +60,20 @@ object TorrentProtocol {
     ByteString.fromArray(byteArray)
   }
 
-  // Just creating the prefix for ByteString
-  def piece(length: Int): ByteString = {
-    val byteArray = ByteBuffer.allocate(4).putInt(length + 9).array
-    ByteString.fromArray(byteArray) ++ ByteString(7)
+  // Take in an int and the # of bytes it should contain, return the
+  // corresponding ByteString of the int with appropriate leading 0s
+  // Works for multiple nums of the same size
+  // Don't use ByteBuffer since I need speed.
+  def byteStringify(size: Int, nums: Int*): ByteString = {
+    val builder = ByteString.newBuilder
+    for {
+      n <- nums
+      idx <- 0 until size
+    } yield {
+      val shift = Constant.ByteSize * (size - 1 - idx)
+      builder += ((n >> shift) & 0xFF).asInstanceOf[Byte]
+    }
+    builder.result
   }
 
 }
@@ -66,47 +96,23 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
     case Tcp.Received(data) => handleReply(data)
   }
 
-  // Take in an int and the # of bytes it should contain, return the
-  // corresponding ByteString of the int with appropriate leading 0s
-  // Works for multiple nums of the same size
-  // Don't use ByteBuffer since I need speed.
-  def byteStringify(size: Int, nums: Int*): ByteString = {
-    val builder = ByteString.newBuilder
-    for {
-      n <- nums
-      idx <- 0 until size
-    } yield {
-      val shift = Constant.ByteSize * (size - 1 - idx)
-      builder += ((n >> shift) & 0xFF).asInstanceOf[Byte]
-    }
-    builder.result
-  }
-
   // Handle each type of tcp peer message that client may want to send
   // Create ByteString based off message type and send to tcp connection
   // TODO - BITFIELD
   def handleMessage(msg: BT.Message) = {
     val byteMessage: ByteString = msg match {
-      case BT.KeepAlive                      => TorrentProtocol.keepAlive
-      case BT.Choke                          => TorrentProtocol.choke
-      case BT.Unchoke                        => TorrentProtocol.unchoke
-      case BT.Interested                     => TorrentProtocol.interested
-      case BT.NotInterested                  => TorrentProtocol.notInterested
-      case BT.Bitfield(bitfield, numPieces)  => TorrentProtocol.bitfield(bitfield, numPieces)
-      case BT.Have(index)                    => TorrentProtocol.have ++
-                                                byteStringify(4, index)
-      case BT.Request(index, offset, length) => TorrentProtocol.request ++
-                                                byteStringify(4, index, offset, length)
-      case BT.Piece(index, offset, block)    => TorrentProtocol.piece(block.size) ++
-                                                byteStringify(4, index, offset) ++
-                                                block
-      case BT.Cancel(index, offset, length)  => TorrentProtocol.cancel ++
-                                                byteStringify(4, index, offset, length)
-      case BT.Port(port)                     => TorrentProtocol.port ++
-                                                byteStringify(2, port)
-      case BT.Handshake(info, id)            => TorrentProtocol.handshake ++
-                                                info ++
-                                                id
+      case BT.KeepAlive              => TorrentProtocol.keepAlive
+      case BT.Choke                  => TorrentProtocol.choke
+      case BT.Unchoke                => TorrentProtocol.unchoke
+      case BT.Interested             => TorrentProtocol.interested
+      case BT.NotInterested          => TorrentProtocol.notInterested
+      case BT.Bitfield(bits, n)      => TorrentProtocol.bitfield(bits, n)
+      case BT.Have(idx)              => TorrentProtocol.have(idx)
+      case BT.Request(idx, off, len) => TorrentProtocol.request(idx, off, len)
+      case BT.Piece(idx, off, block) => TorrentProtocol.piece(idx, off, block)
+      case BT.Cancel(idx, off, len)  => TorrentProtocol.cancel(idx, off, len)
+      case BT.Port(port)             => TorrentProtocol.port(port)
+      case BT.Handshake(info, id)    => TorrentProtocol.handshake(info, id)
     }
     connection ! Tcp.Write(byteMessage)
   }

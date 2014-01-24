@@ -20,7 +20,7 @@ import scala.util.Random
 case class PeerInfo(
   peerId: Option[ByteString],
   ownId: ByteString,
-  infoHash: ByteString
+  infoHash: ByteString,
   ip: String,
   port: Int
 )
