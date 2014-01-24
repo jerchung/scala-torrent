@@ -76,19 +76,6 @@ object TorrentProtocol {
     builder.result
   }
 
-  // Take in an int and the # of bytes it should contain, return the
-  // corresponding ByteString of the int with appropriate leading 0s
-  // Works for multiple nums of the same size
-  // Don't use ByteBuffer since I need speed.
-  def byteStringify(size: Int, nums: Int*): ByteString = {
-    val builder = ByteString.newBuilder
-    for (n <- nums; idx <- 0 until size) {
-      val shift = Constant.ByteSize * (size - 1 - idx)
-      builder += ((n >> shift) & 0xFF).asInstanceOf[Byte]
-    }
-    builder.result
-  }
-
 }
 
 /**
