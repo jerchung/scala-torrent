@@ -34,16 +34,17 @@ class ConvertibleByteString(bytes: ByteString) {
   // Gonna have to do some actual bit arithmetic :\
   def toBitSet: BitSet = {
     val builder = BitSet.newBuilder
-    var distance = bytes.length * Constant.ByteSize - 1
+    var idx = 0
     for {
       byte <- bytes
       maskedByte = (byte & 0xFF)
       offset <- (Constant.ByteSize - 1 to 0 by -1)
       bit = (maskedByte >> offset) & 0x01
     } yield {
-      if (bit == 1) builder += distance
-      distance -= 1
+      if (bit == 1) builder += idx
+      idx += 1
     }
-    builder.result
+    val bits = builder.result
+    bits
   }
 }

@@ -53,11 +53,8 @@ object TorrentProtocol {
   // Bytes needed is numPieces / 8 since it's 8 bits per byte
   // numPieces needs to be passed in so that the number of padding 0's is known
   def bitfield(bitfield: BitSet, numPieces: Int): ByteString = {
-    val bitValue = if (bitfield.isEmpty) 0 else bitfield.toBitMask.head
-    val numBytesNeeded = math.ceil(numPieces.toFloat / 8).toInt
-    val buffer = ByteBuffer.allocate(numBytesNeeded)
-    val byteArray = buffer.putLong(bitValue).array
-    ByteString.fromArray(byteArray)
+    val numBytes = math.ceil(numPieces.toFloat / Constant.ByteSize).toInt
+    byteStringify(4, 1 + numBytes) ++ ByteString(5) ++ bitfield.toByteString(numBytes)
   }
 
   // Take in an int and the # of bytes it should contain, return the
@@ -71,7 +68,7 @@ object TorrentProtocol {
       idx <- 0 until size
     } yield {
       val shift = Constant.ByteSize * (size - 1 - idx)
-      builder += ((n >> shift) & 0xFF).asInstanceOf[Byte]
+      builder += ((n >> shift) & 0xFF).toByte
     }
     builder.result
   }

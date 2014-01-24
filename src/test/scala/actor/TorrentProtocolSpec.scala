@@ -94,8 +94,8 @@ class TorrentProtocolSpec(_sys: ActorSystem)
       }
 
       "translate to Bitfield" in { f =>
-        val bits = BitSet(1, 3)
-        val bitfield = TorrentProtocol.bitfield(bits, 6)
+        val bits = BitSet(1, 3, 8, 10, 20)
+        val bitfield = TorrentProtocol.bitfield(bits, 25)
         f.parent ! Tcp.Received(bitfield)
         expectMsg(BT.BitfieldR(bits))
       }
