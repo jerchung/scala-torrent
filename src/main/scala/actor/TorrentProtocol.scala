@@ -46,6 +46,19 @@ object TorrentProtocol {
     ByteString.fromArray(byteArray) ++ ByteString(7)
   }
 
+  // Take in an int and the # of bytes it should contain, return the
+  // corresponding ByteString of the int with appropriate leading 0s
+  // Works for multiple nums of the same size
+  // Don't use ByteBuffer since I need speed.
+  def byteStringify(size: Int, nums: Int*): ByteString = {
+    val builder = ByteString.newBuilder
+    for (n <- nums; idx <- 0 until size) {
+      val shift = Constant.ByteSize * (size - 1 - idx)
+      builder += ((n >> shift) & 0xFF).asInstanceOf[Byte]
+    }
+    builder.result
+  }
+
 }
 
 /**
@@ -69,19 +82,6 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
     case Tcp.Received(data) => handleReply(data)
   }
 
-  // Take in an int and the # of bytes it should contain, return the
-  // corresponding ByteString of the int with appropriate leading 0s
-  // Works for multiple nums of the same size
-  // Don't use ByteBuffer since I need speed.
-  def byteStringify(size: Int, nums: Int*): ByteString = {
-    val builder = ByteString.newBuilder
-    for (n <- nums; idx <- 0 until size) {
-      val shift = Constant.ByteSize * (size - 1 - idx)
-      builder += ((n >> shift) & 0xFF).asInstanceOf[Byte]
-    }
-    builder.result
-  }
-
   // Handle each type of tcp peer message that client may want to send
   // Create ByteString based off message type and send to tcp connection
   // TODO - BITFIELD
@@ -94,16 +94,16 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
       case BT.NotInterested                  => TorrentProtocol.notInterested
       case BT.Bitfield(bitfield, numPieces)  => TorrentProtocol.bitfield(bitfield, numPieces)
       case BT.Have(index)                    => TorrentProtocol.have ++
-                                                byteStringify(4, index)
+                                                TorrentProtocol.byteStringify(4, index)
       case BT.Request(index, offset, length) => TorrentProtocol.request ++
-                                                byteStringify(4, index, offset, length)
+                                                TorrentProtocol.byteStringify(4, index, offset, length)
       case BT.Piece(index, offset, block)    => TorrentProtocol.piece(block.size) ++
-                                                byteStringify(4, index, offset) ++
+                                                TorrentProtocol.byteStringify(4, index, offset) ++
                                                 block
       case BT.Cancel(index, offset, length)  => TorrentProtocol.cancel ++
-                                                byteStringify(4, index, offset, length)
+                                                TorrentProtocol.byteStringify(4, index, offset, length)
       case BT.Port(port)                     => TorrentProtocol.port ++
-                                                byteStringify(2, port)
+                                                TorrentProtocol.byteStringify(2, port)
       case BT.Handshake(info, id)            => TorrentProtocol.handshake ++
                                                 info ++
                                                 id

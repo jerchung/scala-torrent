@@ -73,8 +73,8 @@ class Peer(info: PeerInfo, connection: ActorRef, fileManager: ActorRef) extends 
   }
 
   def receive = {
-    case m: BT.Message   => handleMessage(m)
-    case r: BT.Reply     => handleReply(r)
+    case m: BT.Message => handleMessage(m)
+    case r: BT.Reply   => handleReply(r)
   }
 
   /*

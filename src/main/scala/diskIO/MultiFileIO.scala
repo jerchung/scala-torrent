@@ -38,7 +38,7 @@ class MultiFileIO(pieceSize: Int, files: List[TorrentFile]) extends DiskIO{
       }
     }
 
-    getAffectedFiles(ioFiles, 0, new mutable.ListBuffer[FileOffset])
+    getAffectedFiles(ioFiles, 0, List[FileOffset]())
   }
 
   override def read(dest: ByteBuffer, offset: Int): ByteBuffer = {
