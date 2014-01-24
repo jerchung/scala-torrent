@@ -9,7 +9,7 @@ import akka.util.Timeout
 import java.net.InetSocketAddress
 import java.net.URLEncoder
 import org.jerchung.bencode.Bencode
-import org.jerchung.bencode.Conversions._
+import org.jerchung.torrent.Convert._
 import org.jerchung.torrent.Torrent
 import scala.collection.BitSet
 import scala.collection.mutable
@@ -30,13 +30,11 @@ class TorrentClient(id: String, fileName: String) extends Actor {
 
   import context.{ dispatcher, system }
 
-  implicit val timeout = Timeout(5 seconds)
-
   // Constants
   val torrent  = Torrent.fromFile(fileName)
   val ClientId = "ST"
   val Version  = "1000"
-  val ID       = s"-${ClientId + Version}-${randomIntString(12)}"
+  val ID       = ByteString.fromString(s"-${ClientId + Version}-${randomIntString(12)}")
 
   // Spawn needed actor(s)
   val trackerClient = context.actorOf(TrackerClient.props)
@@ -67,7 +65,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
       val ip = remote.getHostString
       val port = remote.getPort
       val info = PeerInfo(peerId, ID, torrent.hashedInfo, ip, port)
-      val peer = context.actorOf(Peer.props(info, protocol, fileManager))
+      val peer = context.actorOf(Peer.props(info, connection, fileManager))
     case TorrentM.Available(update) =>
       update match {
         case Right(bitfield) =>
@@ -95,7 +93,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   def startTorrent(fileName: String): Unit = {
     val request = Map[String, Any](
       "info_hash" -> urlEncode(torrent.hashedInfo.toChars),
-      "peer_id" -> urlEncode(ID),
+      "peer_id" -> urlEncode(ID.toChars),
       "port" -> validTorrentPort,
       "uploaded" -> 0,
       "downloaded" -> 0,
@@ -160,13 +158,13 @@ class TorrentClient(id: String, fileName: String) extends Actor {
 
   def randomIntString(length: Int, random: Random = new Random): String = {
     if (length > 0) {
-      random.nextInt(10).toChar + randomIntString(random, length - 1)
+      random.nextInt(10).toChar + randomIntString(length - 1, random)
     } else {
       ""
     }
   }
 
-  def broadcast(message: Message): Unit = {
+  def broadcast(message: Any): Unit = {
     communicatingPeers foreach { case (id, peer) => peer ! message }
   }
 

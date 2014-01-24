@@ -6,7 +6,7 @@ import com.twitter.util.LruMap
 import java.io.RandomAccessFile
 import java.security.MessageDigest
 import org.jerchung.torrent.actor.message.BT
-import org.jerchung.torrent.actor.message.FM
+import org.jerchung.torrent.actor.message.FM._
 import org.jerchung.torrent.actor.message.TorrentM
 import org.jerchung.torrent.diskIO._
 import org.jerchung.torrent.piece._
@@ -69,7 +69,7 @@ class FileManager(torrent: Torrent) extends Actor {
     case Read(idx, off, length) => getBlock(idx, off, length)
     case Write(idx, off, block) =>
       pieces(idx) match {
-        case p: UnfinishedPiece => insertBlock(p, idx, off, block)
+        case p: UnfinishedPiece => insertBlock(p, off, block)
         case _ =>
       }
   }
@@ -78,14 +78,14 @@ class FileManager(torrent: Torrent) extends Actor {
   // This call may have the effect of having disk IO if the piece having
   // the block inserted in ends up being completed. Also takes care of the
   // caching / invalid / finished piece logic
-  def insertBlock(piece: UnfinishedPiece, index: Int, offset: Int, block: ByteString): Unit = {
+  def insertBlock(piece: UnfinishedPiece, offset: Int, block: ByteString): Unit = {
     piece.insert(offset, block) match {
       case p @ InMemPiece(idx, off, size, hash, data) =>
         pieces(idx) = new InDiskPiece(idx, off, size, hash, diskIO)
         cachedPieces(idx) = p
         context.parent ! TorrentM.PieceDone(idx)
       case InvalidPiece(idx, off, size, hash) =>
-        pieces(idx) = new UnfinishedPiece(idx, size, hash, diskIO)
+        pieces(idx) = new UnfinishedPiece(idx, off, size, hash, diskIO)
         context.parent ! TorrentM.PieceInvalid(idx)
       case _ =>
     }
@@ -100,9 +100,9 @@ class FileManager(torrent: Torrent) extends Actor {
         Some(ByteString.fromArray(data, offset, length))
       } else {
         pieces(index) match {
-          case p: InDiskPiece =>
+          case p @ InDiskPiece(idx, off, size, hash, reader) =>
             val data = p.data
-            cachedPieces(index) += InMemPiece(index, p.size, p.hash, data)
+            cachedPieces(index) = InMemPiece(idx, off, size, hash, data)
             Some(ByteString.fromArray(data, offset, length))
           case _ => None
         }

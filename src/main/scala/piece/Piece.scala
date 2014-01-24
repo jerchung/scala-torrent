@@ -12,11 +12,11 @@ trait Piece {
   def hash: ByteString
 }
 
-class InDiskPiece(
-    val index: Int,
-    val offset: Int,
-    val size: Int,
-    val hash: ByteString,
+case class InDiskPiece(
+    index: Int,
+    offset: Int,
+    size: Int,
+    hash: ByteString,
     reader: DiskIO)
     extends Piece {
 

@@ -8,7 +8,7 @@ import org.jerchung.torrent.TorrentFile
 class MultiFileIO(pieceSize: Int, files: List[TorrentFile]) extends DiskIO{
 
   val ioFiles = files map { f => new SingleFileIO(f.path, pieceSize, f.length) }
-  val size = files.foldLeft(0) { (acc, f) => acc + f.length }
+  val totalSize = files.foldLeft(0) { (acc, f) => acc + f.length }
 
   case class FileOffset(file: SingleFileIO, offset: Int, length: Int)
 
@@ -20,20 +20,20 @@ class MultiFileIO(pieceSize: Int, files: List[TorrentFile]) extends DiskIO{
     def getAffectedFiles(
         files: List[SingleFileIO],
         pos: Int,
-        buffer: mutable.ListBuffer[FileOffset]): List[FileOffset] = {
+        affected: List[FileOffset]): List[FileOffset] = {
       files match {
-        case Nil => buffer.toList
+        case Nil => affected.reverse
         case f :: more =>
           val end = pos + f.size
           if (end < targetStart) {
-            getAffectedFiles(more, end, buffer)
+            getAffectedFiles(more, end, affected)
           } else if (pos >= targetStop) {
-            buffer.toList
+            affected.reverse
           } else {
             val offset = if (targetStart - pos > 0) pos else 0
             val readLength = math.min(f.size - offset, targetStop - pos)
             val fileOffset = FileOffset(f, offset, readLength)
-            getAffectedFiles(more, end, buffer += fileOffset)
+            getAffectedFiles(more, end, fileOffset :: affected)
           }
       }
     }

@@ -85,12 +85,15 @@ object TorrentProtocol {
  */
 class TorrentProtocol(connection: ActorRef) extends Actor {
 
+  import context.parent
+
   override def preStart(): Unit = {
     connection ! Tcp.Register(self)
   }
 
-  override def postRestart(): Unit = {}
+  override def postRestart(reason: Throwable): Unit = {}
 
+  // TODO - Figure out what to do upon connection close
   def receive: Receive = {
     case msg: BT.Message => handleMessage(msg)
     case Tcp.Received(data) => handleReply(data)
@@ -140,12 +143,11 @@ class TorrentProtocol(connection: ActorRef) extends Actor {
         }
       }
 
-      listener ! msg.get
+      parent ! msg.get
       handleReply(data.drop(length))
     }
   }
 
-  // TODO - PUT THE IMPLICIT toInt, toLong, toBitSet calls here
   def parseCommonReply(data: ByteString, length: Int): BT.Reply = {
     data(4) match {
       case 0 => BT.ChokeR

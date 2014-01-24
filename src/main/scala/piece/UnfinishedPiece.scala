@@ -3,13 +3,14 @@ package org.jerchung.torrent.piece
 import akka.util.ByteString
 import java.security.MessageDigest
 import java.nio.ByteBuffer
+import org.jerchung.torrent.diskIO.DiskIO
 
 class UnfinishedPiece(
     val index: Int,
     val offset: Int,
     val size: Int,
     val hash: ByteString,
-    writer: TorrentBytesIO)
+    writer: DiskIO)
     extends Piece {
 
   // Important for this to be lazy so that not all pieces get memory

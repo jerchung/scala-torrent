@@ -1,13 +1,14 @@
 package org.jerchung.torrent.actor
 
-import org.jerchung.torrent.actor.message.{ PeerM, BT, TorrentM }
+import org.jerchung.torrent.actor.message.{ PeerM, BT, TorrentM, FM }
 import akka.actor.{ Actor, ActorRef, Props }
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
 import akka.util.Timeout
-import scala.collection.immutable.BitSet
+import scala.collection.BitSet
 import scala.collection.mutable
 import scala.concurrent.duration._
+import scala.language.postfixOps
 
 object Peer {
   def props(info: PeerInfo, connection: ActorRef, fileManager: ActorRef): Props = {
@@ -57,7 +58,7 @@ class Peer(info: PeerInfo, connection: ActorRef, fileManager: ActorRef) extends 
       protocol ! BT.Handshake(infoHash, ownId)
       parent ! TorrentM.Register(peerId)
       this.peerId = Some(peerId)
-      hearteat
+      heartbeat
       become(receive)
     case _ => context stop self
   }
@@ -100,9 +101,9 @@ class Peer(info: PeerInfo, connection: ActorRef, fileManager: ActorRef) extends 
       case BT.UnchokeR                        => peerChoking = false
       case BT.InterestedR                     => peerInterested = true
       case BT.NotInterestedR                  => peerInterested = false
-      case update: BT.UpdateR                 => updatePeerAvailable(msg)
+      case update: BT.UpdateR                 => updatePeerAvailable(update)
       case BT.RequestR(index, offset, length) =>
-      case BT.PieceR(index, offset, block)    => fileManager ! Write(index, offset, block)
+      case BT.PieceR(index, offset, block)    => fileManager ! FM.Write(index, offset, block)
       case BT.CancelR(index, offset, length)  =>
       case _                                  =>
     }

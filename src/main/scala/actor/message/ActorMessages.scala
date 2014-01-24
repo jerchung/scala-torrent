@@ -20,6 +20,7 @@ object TorrentM {
   case class Unavailable(remove: Either[Int, BitSet])
   case class PieceDone(idx: Int)
   case class PieceInvalid(idx: Int)
+  case class Register(peerId: ByteString)
 }
 
 // Peer Client
