@@ -9,6 +9,7 @@ import akka.testkit.TestKit
 import akka.testkit.TestProbe
 import akka.util.ByteString
 import org.jerchung.torrent.actor.message.BT
+import scala.collection.BitSet
 
 class TorrentProtocolSpec(_sys: ActorSystem)
     extends ActorSpec(_sys) {
@@ -83,6 +84,20 @@ class TorrentProtocolSpec(_sys: ActorSystem)
         val piece = TorrentProtocol.piece(idx, off, block)
         f.parent ! Tcp.Received(piece)
         expectMsg(BT.PieceR(idx, off, block))
+      }
+
+      "translate to Port" in { f =>
+        val port = 3958
+        val portBytes = TorrentProtocol.port(port)
+        f.parent ! Tcp.Received(portBytes)
+        expectMsg(BT.PortR(port))
+      }
+
+      "translate to Bitfield" in { f =>
+        val bits = BitSet(1, 3)
+        val bitfield = TorrentProtocol.bitfield(bits, 6)
+        f.parent ! Tcp.Received(bitfield)
+        expectMsg(BT.BitfieldR(bits))
       }
     }
 
