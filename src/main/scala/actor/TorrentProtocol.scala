@@ -16,12 +16,13 @@ object TorrentProtocol {
     Props(classOf[TorrentProtocol], connection)
   }
 
-  // ByteString prefix of peer messages which stay constant
+  // ByteString of peer messages which stay constant
   lazy val keepAlive = ByteString(0, 0, 0, 0)
   lazy val choke = ByteString(0, 0, 0, 1, 0)
   lazy val unchoke = ByteString(0, 0, 0, 1, 1)
   lazy val interested = ByteString(0, 0, 0, 1, 2)
   lazy val notInterested = ByteString(0, 0, 0, 1, 3)
+  lazy val reserved = ByteString(0, 0, 0, 0, 0, 0, 0, 0)
   lazy val protocol = ByteString.fromString("BitTorrent protocol")
 
   def have(idx: Int): ByteString = {
@@ -46,7 +47,7 @@ object TorrentProtocol {
   }
 
   def handshake(info: ByteString, id: ByteString): ByteString = {
-    ByteString(19) ++ protocol ++ info ++ id
+    ByteString(19) ++ protocol ++ reserved ++ info ++ id
   }
 
   // Use number of pieces a particular torrent has to generate the bitfield

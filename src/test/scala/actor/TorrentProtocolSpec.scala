@@ -32,7 +32,7 @@ class TorrentProtocolSpec(_sys: ActorSystem)
 
   "A TorrentProtocol Actor" when {
 
-    "receiving Bytestring messages from a peer" should {
+    "receiving valid Bytestring messages from a peer" should {
 
       "translate to KeepAlive" in { f =>
         val keepAlive = ByteString(0, 0, 0, 0)
@@ -94,10 +94,18 @@ class TorrentProtocolSpec(_sys: ActorSystem)
       }
 
       "translate to Bitfield" in { f =>
-        val bits = BitSet(1, 3, 8, 10, 20)
+        val bits = BitSet(0, 1, 3, 8, 10, 20)
         val bitfield = TorrentProtocol.bitfield(bits, 25)
         f.parent ! Tcp.Received(bitfield)
         expectMsg(BT.BitfieldR(bits))
+      }
+
+      "translate to Handshake" in { f =>
+        val info = ByteString(0, 29, 30, 4, 50, 29, 9, 0, 2, 3, 11, 2, 3, 4, 5, 6, 7, 8, 9, 0)
+        val id = ByteString(1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+        val handshake = TorrentProtocol.handshake(info, id)
+        f.parent ! Tcp.Received(handshake)
+        expectMsg(BT.HandshakeR(info, id))
       }
     }
 
