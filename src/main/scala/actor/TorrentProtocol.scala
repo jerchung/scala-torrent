@@ -32,9 +32,9 @@ object TorrentProtocol {
     ByteString(0, 0, 0, 13, 6) ++ byteStringify(4, idx, off, len)
   }
 
-  def piece(length: Int, block: ByteString): ByteString = {
-    val byteArray = ByteBuffer.allocate(4).putInt(length + 9).array
-    ByteString.fromArray(byteArray) ++ ByteString(7) ++ block
+  def piece(idx: Int, off: Int, block: ByteString): ByteString = {
+    byteStringify(4, 9 + block.length) ++ ByteString(7) ++
+    byteStringify(4, idx, off) ++ block
   }
 
   def cancel(idx: Int, off: Int, len: Int): ByteString = {
