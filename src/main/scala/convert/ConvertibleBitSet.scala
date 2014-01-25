@@ -28,8 +28,7 @@ class ConvertibleBitSet(bits: BitSet) {
       }
     }
 
-    val byteString = helper(0, 0)
-    byteString
+    helper(0, 0)
   }
 
 }

@@ -24,6 +24,7 @@ class TorrentProtocolSpec(_sys: ActorSystem)
 
   def withFixture(test: OneArgTest) = {
     val connection = TestProbe()
+    connection.ignoreMsg({ case m: Tcp.Register => true })
     val props = TorrentProtocol.props(connection.ref)
     val protocolParent = system.actorOf(Props(new TestParent(props)))
     val fixParam = FixtureParam(protocolParent, connection)
@@ -108,6 +109,72 @@ class TorrentProtocolSpec(_sys: ActorSystem)
         expectMsg(BT.HandshakeR(info, id))
       }
     }
+
+  "Sending a TCP Wire Message to a peer" should {
+
+    "correctly translate KeepAlive to ByteString" in { f =>
+      f.parent ! BT.KeepAlive
+      f.connection.expectMsg(Tcp.Write(TorrentProtocol.keepAlive))
+    }
+
+    "correctly translate Choke to ByteString" in { f =>
+      f.parent ! BT.Choke
+      f.connection.expectMsg(Tcp.Write(TorrentProtocol.choke))
+    }
+
+    "correctly translate Unchoke to ByteString" in { f =>
+      f.parent ! BT.Unchoke
+      f.connection.expectMsg(Tcp.Write(TorrentProtocol.unchoke))
+    }
+
+    "correctly translate Interested to ByteString" in { f =>
+      f.parent ! BT.Interested
+      f.connection.expectMsg(Tcp.Write(TorrentProtocol.interested))
+    }
+
+    "correctly translate NotInterested to ByteString" in { f =>
+      f.parent ! BT.NotInterested
+      f.connection.expectMsg(Tcp.Write(TorrentProtocol.notInterested))
+    }
+
+    "correctly translate Have to ByteString" in { f =>
+      val idx = 28
+      f.parent ! BT.Have(idx)
+      f.connection.expectMsg(Tcp.Write(TorrentProtocol.have(idx)))
+    }
+
+    "correctly translate Bitfield to ByteString" in { f =>
+      val (bits, numPieces) = (BitSet(10, 28, 30), 42)
+      f.parent ! BT.Bitfield(bits, numPieces)
+      f.connection.expectMsg(Tcp.Write(TorrentProtocol.bitfield(bits, numPieces)))
+    }
+
+    "correctly translate Request to ByteString" in { f =>
+      val (idx, off, len) = (29, 212, 400)
+      f.parent ! BT.Request(idx, off, len)
+      f.connection.expectMsg(Tcp.Write(TorrentProtocol.request(idx, off, len)))
+    }
+
+    "correctly translate Piece to ByteString" in { f =>
+      val (idx, off, block) = (29, 219, ByteString(10, 10, 1, 3, 5, 7, 65, 2))
+      f.parent ! BT.Piece(idx, off, block)
+      f.connection.expectMsg(Tcp.Write(TorrentProtocol.piece(idx, off, block)))
+    }
+
+    "correctly translate Cancel to ByteString" in { f =>
+      val (idx, off, len) = (29, 212, 400)
+      f.parent ! BT.Cancel(idx, off, len)
+      f.connection.expectMsg(Tcp.Write(TorrentProtocol.cancel(idx, off, len)))
+    }
+
+    "Correctly translate Handshake to ByteString" in { f =>
+      val info = ByteString(0, 29, 30, 4, 50, 29, 9, 0, 2, 3, 11, 2, 3, 4, 5, 6, 7, 8, 9, 0)
+      val id = ByteString(1, 2, 3, 4, 5, 6, 7, 8, 9, 0, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20)
+      f.parent ! BT.Handshake(info, id)
+      f.connection.expectMsg(Tcp.Write(TorrentProtocol.handshake(info, id)))
+    }
+
+  }
 
   }
 

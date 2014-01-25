@@ -44,7 +44,7 @@ class ConvertibleByteString(bytes: ByteString) {
       if (bit == 1) builder += idx
       idx += 1
     }
-    val bits = builder.result
-    bits
+
+    builder.result
   }
 }
