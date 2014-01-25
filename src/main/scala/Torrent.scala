@@ -1,6 +1,6 @@
 package org.jerchung.torrent
 
-import org.jerchung.bencode._
+import org.jerchung.torrent.bencode._
 import org.jerchung.torrent.Convert._
 import akka.util.ByteString
 import scala.io.Source

@@ -1,6 +1,5 @@
 package org.jerchung.torrent.actor
 
-import org.jerchung.torrent.actor.message.{ TorrentM, TrackerM, BT }
 import akka.actor.{Actor, ActorRef, Props}
 import akka.io.{ IO, Tcp }
 import akka.pattern.ask
@@ -8,7 +7,9 @@ import akka.util.ByteString
 import akka.util.Timeout
 import java.net.InetSocketAddress
 import java.net.URLEncoder
-import org.jerchung.bencode.Bencode
+import org.jerchung.torrent.bencode.Bencode
+import org.jerchung.torrent.actor.message.{ TorrentM, TrackerM, BT }
+import org.jerchung.torrent.Constant
 import org.jerchung.torrent.Convert._
 import org.jerchung.torrent.Torrent
 import scala.collection.BitSet
@@ -32,9 +33,6 @@ class TorrentClient(id: String, fileName: String) extends Actor {
 
   // Constants
   val torrent  = Torrent.fromFile(fileName)
-  val ClientId = "ST"
-  val Version  = "1000"
-  val ID       = ByteString.fromString(s"-${ClientId + Version}-${randomIntString(12)}")
 
   // Spawn needed actor(s)
   val trackerClient = context.actorOf(TrackerClient.props)
@@ -48,7 +46,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   val communicatingPeers = mutable.Map.empty[ByteString, ActorRef]
 
   // This bitset holds which pieces are done
-  var piecesDone = BitSet.empty
+  var bitfield = BitSet.empty
 
   // Frequency of all available pieces
   val allPiecesFreq = mutable.Map.empty[Int, Int].withDefaultValue(0)
@@ -60,12 +58,14 @@ class TorrentClient(id: String, fileName: String) extends Actor {
     case p: Props => sender ! context.actorOf(p) // Actor creation
     case TorrentM.Start(t) => startTorrent(t)
     case TrackerM.Response(r) => connectPeers(r)
-    case TorrentM.Register(peerId) => connectedPeers(peerId) = sender
+    case TorrentM.Register(peerId) =>
+      connectedPeers(peerId) = sender
+      sender ! BT.Bitfield(bitfield, torrent.numPieces)
     case TorrentM.CreatePeer(connection, remote, peerId) =>
       val ip = remote.getHostString
       val port = remote.getPort
-      val info = PeerInfo(peerId, ID, torrent.hashedInfo, ip, port)
-      val peer = context.actorOf(Peer.props(info, connection, fileManager))
+      val info = PeerInfo(peerId, Constant.ID.toByteString, torrent.hashedInfo, ip, port)
+      context.actorOf(Peer.props(info, connection, fileManager))
     case TorrentM.Available(update) =>
       update match {
         case Right(bitfield) =>
@@ -85,7 +85,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
         if (wantedPiecesFreq(i) <= 0) { wantedPiecesFreq -= i} // Remove key
       }
     case TorrentM.PieceDone(i) =>
-      piecesDone += i
+      bitfield += i
       wantedPiecesFreq -= i
       broadcast(BT.Have(i))
   }
@@ -93,7 +93,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   def startTorrent(fileName: String): Unit = {
     val request = Map[String, Any](
       "info_hash" -> urlEncode(torrent.hashedInfo.toChars),
-      "peer_id" -> urlEncode(ID.toChars),
+      "peer_id" -> urlEncode(Constant.ID),
       "port" -> validTorrentPort,
       "uploaded" -> 0,
       "downloaded" -> 0,
@@ -155,14 +155,6 @@ class TorrentClient(id: String, fileName: String) extends Actor {
       Peer()
     }
   }*/
-
-  def randomIntString(length: Int, random: Random = new Random): String = {
-    if (length > 0) {
-      random.nextInt(10).toChar + randomIntString(length - 1, random)
-    } else {
-      ""
-    }
-  }
 
   def broadcast(message: Any): Unit = {
     communicatingPeers foreach { case (id, peer) => peer ! message }

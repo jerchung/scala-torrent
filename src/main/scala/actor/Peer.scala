@@ -59,7 +59,7 @@ class Peer(info: PeerInfo, connection: ActorRef, fileManager: ActorRef) extends 
       parent ! TorrentM.Register(peerId)
       this.peerId = Some(peerId)
       heartbeat
-      become(receive)
+      become(acceptBitfield)
     case _ => context stop self
   }
 
@@ -68,8 +68,21 @@ class Peer(info: PeerInfo, connection: ActorRef, fileManager: ActorRef) extends 
         if (infoHash == this.infoHash && peerId == this.peerId.get) =>
       parent ! TorrentM.Register(peerId)
       heartbeat
-      become(receive)
+      become(acceptBitfield)
     case _ => context stop self
+  }
+
+  /**
+   * Bitfield must be first message sent to you from peer for it to be valid
+   */
+  def acceptBitfield: Receive = receive orElse {
+    case BT.BitfieldR(bitfield) =>
+      peerHas |= bitfield
+      parent ! TorrentM.Available(Right(peerHas))
+      become(receive)
+    case anythingElse =>
+      receive(anythingElse)
+      become(receive)
   }
 
   def receive = {

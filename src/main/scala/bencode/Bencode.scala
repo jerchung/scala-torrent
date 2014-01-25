@@ -1,4 +1,4 @@
-package org.jerchung.bencode
+package org.jerchung.torrent.bencode
 
 import scala.io.Source
 

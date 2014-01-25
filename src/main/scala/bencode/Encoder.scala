@@ -1,4 +1,4 @@
-package org.jerchung.bencode
+package org.jerchung.torrent.bencode
 
 import akka.util.ByteString
 import org.jerchung.torrent.Convert._

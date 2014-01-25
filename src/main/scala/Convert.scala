@@ -15,4 +15,8 @@ object Convert {
     new ConvertibleBitSet(bits)
   }
 
+  implicit def stringConvert(string: String): ConvertibleString = {
+    new ConvertibleString(string)
+  }
+
 }
