@@ -12,7 +12,7 @@ import org.jerchung.torrent.actor.message.BT
 import scala.collection.BitSet
 
 class TorrentProtocolSpec(_sys: ActorSystem)
-    extends ActorSpec(_sys) {
+    extends ParentActorSpec(_sys) {
 
   def this() = this(ActorSystem("TorrentProtocolSpec"))
 
