@@ -8,26 +8,28 @@ import akka.io.Tcp
 import akka.io.IO
 import akka.testkit.TestKit
 import akka.testkit.TestProbe
+import akka.testkit.TestActorRef
 import java.net.InetSocketAddress
 import org.jerchung.torrent.actor.message.TorrentM
+import org.scalatest.fixture
 
 class PeerServerSpec(_sys: ActorSystem)
-    extends ParentActorSpec(_sys) {
+    extends ActorSpec(_sys)
+    with fixture.WordSpecLike {
 
   def this() = this(ActorSystem("PeerServerSpec"))
 
-  override def afterAll = {
-    TestKit.shutdownActorSystem(system)
-  }
-
-  case class FixtureParam(parent: ActorRef)
+  case class FixtureParam(peerServer: TestActorRef[PeerServer], parent: TestProbe)
 
   def withFixture(test: OneArgTest) = {
     val manager = TestProbe()
+    val testParent = TestProbe()
     manager.ignoreMsg({ case m: Tcp.Bind => true})
-    val props = PeerServer.props(manager.ref)
-    val peerServerParent = system.actorOf(Props(new TestParent(props)))
-    val fixParam = FixtureParam(peerServerParent)
+    val peerServerProps = Props(new PeerServer(manager.ref) with TestParent {
+      val parent = testParent.ref
+    })
+    val peerServer = TestActorRef[PeerServer](peerServerProps)
+    val fixParam = FixtureParam(peerServer, testParent)
     withFixture(test.toNoArgTest(fixParam))
   }
 
@@ -35,12 +37,11 @@ class PeerServerSpec(_sys: ActorSystem)
 
     "receiving an incoming connection" should {
 
-      "send a CreatePeer message its parent (TorrentClient)" in { f =>
+      "send a CreatePeer message to its parent (TorrentClient)" in { f =>
         val remote = new InetSocketAddress("remote", 0)
         val local = new InetSocketAddress("localhost", 0)
-        val pretendPeer = TestProbe()
-        pretendPeer.send(f.parent, Tcp.Connected(remote, local))
-        expectMsg(TorrentM.CreatePeer(pretendPeer.ref, remote))
+        f.peerServer ! Tcp.Connected(remote, local)
+        f.parent.expectMsg(TorrentM.CreatePeer(testActor, remote))
       }
 
     }

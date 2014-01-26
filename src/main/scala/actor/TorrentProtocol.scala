@@ -13,7 +13,7 @@ import scala.collection.BitSet
 object TorrentProtocol {
 
   def props(connection: ActorRef): Props = {
-    Props(classOf[TorrentProtocol], connection)
+    Props(new TorrentProtocol(connection) with ProdParent)
   }
 
   // ByteString of peer messages which stay constant
@@ -81,9 +81,7 @@ object TorrentProtocol {
  * The parent of this actor should always be a Peer Actor, thus responses are
  * send to parent
  */
-class TorrentProtocol(connection: ActorRef) extends Actor {
-
-  import context.parent
+class TorrentProtocol(connection: ActorRef) extends Actor { this: Parent =>
 
   override def preStart(): Unit = {
     connection ! Tcp.Register(self)

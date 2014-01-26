@@ -9,11 +9,12 @@ import org.jerchung.torrent.actor.message.TorrentM
 
 object ConnectingPeer {
   def props(remote: InetSocketAddress, peerId: ByteString): Props = {
-    Props(classOf[ConnectingPeer], remote)
+    Props(new ConnectingPeer(remote, peerId) with ProdParent)
   }
 }
 
-class ConnectingPeer(remote: InetSocketAddress, peerId: ByteString) extends Actor {
+class ConnectingPeer(remote: InetSocketAddress, peerId: ByteString)
+    extends Actor { this: Parent =>
 
   import context.system
 
@@ -21,7 +22,7 @@ class ConnectingPeer(remote: InetSocketAddress, peerId: ByteString) extends Acto
 
   def receive = {
     case Tcp.Connected(remote, local) =>
-      context.parent ! TorrentM.CreatePeer(sender, remote, Some(peerId))
+      parent ! TorrentM.CreatePeer(sender, remote, Some(peerId))
       context stop self
     case _ => context stop self
   }

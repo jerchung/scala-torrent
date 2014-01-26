@@ -52,18 +52,16 @@ object BT {
   case class Cancel(index: Int, offset: Int, length: Int) extends Message
   case class Port(port: Int) extends Message
   case class Handshake(infoHash: ByteString, peerId: ByteString) extends Message
-  case class Listener(actor: ActorRef)
 
   // Messages sent *FROM* TorrentProtocol actor
   sealed trait Reply
-  sealed trait UpdateR
   case object KeepAliveR extends Reply
   case object ChokeR extends Reply
   case object UnchokeR extends Reply
   case object InterestedR extends Reply
   case object NotInterestedR extends Reply
-  case class BitfieldR(bitfield: BitSet) extends Reply with UpdateR
-  case class HaveR(index: Int) extends Reply with UpdateR
+  case class BitfieldR(bitfield: BitSet) extends Reply
+  case class HaveR(index: Int) extends Reply
   case class RequestR(index: Int, offset: Int, length: Int) extends Reply
   case class PieceR(index: Int, offset: Int, block: ByteString) extends Reply
   case class CancelR(index: Int, offset: Int, length: Int) extends Reply
@@ -71,5 +69,4 @@ object BT {
   case class HandshakeR(infoHash: ByteString, peerId: ByteString) extends Reply
   case object Connected extends Reply
   case object InvalidR extends Reply // Invalid ByteString from peer
-
 }

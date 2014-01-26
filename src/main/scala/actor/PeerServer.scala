@@ -10,15 +10,13 @@ import scala.concurrent.duration._
 
 object PeerServer {
   def props(manager: ActorRef): Props = {
-    Props(classOf[PeerServer], manager)
+    Props(new PeerServer(manager) with ProdParent)
   }
 }
 
 // Listen for new connections made from peers
 // Parent is Torrent Client
-class PeerServer(manager: ActorRef) extends Actor {
-
-  import context.{ system, become, parent, dispatcher }
+class PeerServer(manager: ActorRef) extends Actor { this: Parent =>
 
   override def preStart(): Unit = {
     // Figure out which port to bind to later - right now 0 defaults to random
@@ -28,7 +26,7 @@ class PeerServer(manager: ActorRef) extends Actor {
   /**
    * Keep bind call from being re-sent to IO(Tcp).  According to akka documentation
    * upon actor restart, preStart is called from postRestart by default, so
-   * override it so that the preRestart call is only sent upon initial actor
+   * override it so that the preStart call is only sent upon initial actor
    * creation
    */
   override def postRestart(reason: Throwable): Unit = {}
@@ -37,8 +35,7 @@ class PeerServer(manager: ActorRef) extends Actor {
     case b @ Tcp.Bound(localAddress) => // Implement logging later
     case Tcp.CommandFailed(_: Tcp.Bind) => // Binding failed
     case Tcp.Connected(remote, local) =>
-      val peer = sender
-      parent ! TorrentM.CreatePeer(peer, remote)
+      parent ! TorrentM.CreatePeer(sender, remote)
   }
 
 }

@@ -1,30 +1,31 @@
 package org.jerchung.torrent.actor
 
-import org.jerchung.torrent.actor.message.{ PeerM, BT, TorrentM, FM }
 import akka.actor.{ Actor, ActorRef, Props }
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
 import akka.util.Timeout
+import org.jerchung.torrent.actor.message.{ PeerM, BT, TorrentM, FM }
 import scala.collection.BitSet
 import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.language.postfixOps
 
 object Peer {
-  def props(info: PeerInfo, connection: ActorRef, fileManager: ActorRef): Props = {
-    Props(classOf[Peer], info, connection, fileManager)
+  def props(info: PeerInfo, protocolProps: Props, fileManager: ActorRef): Props = {
+    Props(new Peer(info, protocolProps, fileManager) with ProdParent)
   }
 }
 
 // One of these actors per peer
 /* Parent must be Torrent Client */
-class Peer(info: PeerInfo, connection: ActorRef, fileManager: ActorRef) extends Actor {
+class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
+    extends Actor { this: Parent =>
 
-  import context.{ system, become, parent, dispatcher }
+  import context.{ system, dispatcher }
 
   implicit val timeout = Timeout(5 millis)
 
-  val protocol = context.actorOf(TorrentProtocol.props(connection))
+  val protocol = context.actorOf(protocolProps)
 
   var peerId: Option[ByteString] = info.peerId
   val ip: String                 = info.ip
@@ -35,8 +36,7 @@ class Peer(info: PeerInfo, connection: ActorRef, fileManager: ActorRef) extends 
   var peerHas: BitSet            = BitSet.empty
 
   // Need to keep mutable state
-  var keepAlive                    = false
-  var immediatePostHandshake       = true
+  var keepAlive                    = true
   var amChoking, peerChoking       = true
   var amInterested, peerInterested = false
 
@@ -47,10 +47,14 @@ class Peer(info: PeerInfo, connection: ActorRef, fileManager: ActorRef) extends 
     peerId match {
       case Some(id) =>
         protocol ! BT.Handshake(infoHash, id)
-        become(initiatedHandshake)
+        context.become(initiatedHandshake)
       case None =>
-        become(waitingForHandshake)
+        context.become(waitingForHandshake)
     }
+  }
+
+  override def postStop(): Unit = {
+    peerId map { id => parent ! TorrentM.DisconnectedPeer(id, peerHas) }
   }
 
   def waitingForHandshake: Receive = {
@@ -59,7 +63,7 @@ class Peer(info: PeerInfo, connection: ActorRef, fileManager: ActorRef) extends 
       parent ! TorrentM.Register(peerId)
       this.peerId = Some(peerId)
       heartbeat
-      become(acceptBitfield)
+      context.become(acceptBitfield)
     case _ => context stop self
   }
 
@@ -68,26 +72,26 @@ class Peer(info: PeerInfo, connection: ActorRef, fileManager: ActorRef) extends 
         if (infoHash == this.infoHash && peerId == this.peerId.get) =>
       parent ! TorrentM.Register(peerId)
       heartbeat
-      become(acceptBitfield)
+      context.become(acceptBitfield)
     case _ => context stop self
   }
 
   /**
    * Bitfield must be first message sent to you from peer for it to be valid
    */
-  def acceptBitfield: Receive = receive orElse {
+  def acceptBitfield: Receive = {
     case BT.BitfieldR(bitfield) =>
       peerHas |= bitfield
       parent ! TorrentM.Available(Right(peerHas))
-      become(receive)
-    case anythingElse =>
-      receive(anythingElse)
-      become(receive)
+      context.become(receive)
+    case msg =>
+      receive(msg)
+      context.become(receive)
   }
 
   def receive = {
     case m: BT.Message => handleMessage(m)
-    case r: BT.Reply   => handleReply(r)
+    case r: BT.Reply => handleReply(r)
   }
 
   /*
@@ -109,30 +113,18 @@ class Peer(info: PeerInfo, connection: ActorRef, fileManager: ActorRef) extends 
 
   def handleReply(reply: BT.Reply): Unit = {
     reply match {
-      case BT.KeepAliveR                      => keepAlive = true
-      case BT.ChokeR                          => peerChoking = true
-      case BT.UnchokeR                        => peerChoking = false
-      case BT.InterestedR                     => peerInterested = true
-      case BT.NotInterestedR                  => peerInterested = false
-      case update: BT.UpdateR                 => updatePeerAvailable(update)
-      case BT.RequestR(index, offset, length) =>
-      case BT.PieceR(index, offset, block)    => fileManager ! FM.Write(index, offset, block)
-      case BT.CancelR(index, offset, length)  =>
-      case _                                  =>
-    }
-    immediatePostHandshake = false
-  }
-
-  def updatePeerAvailable(msg: BT.UpdateR): Unit = {
-    msg match {
-      case BT.BitfieldR(bitfield) =>
-        if (immediatePostHandshake) {
-          peerHas |= bitfield
-          parent ! TorrentM.Available(Right(peerHas))
-        }
-      case BT.HaveR(index) =>
-        peerHas += index
-        parent ! TorrentM.Available(Left(index))
+      case BT.KeepAliveR                  => keepAlive = true
+      case BT.ChokeR                      => peerChoking = true
+      case BT.UnchokeR                    => peerChoking = false
+      case BT.InterestedR                 => peerInterested = true
+      case BT.NotInterestedR              => peerInterested = false
+      case b @ BT.RequestR(idx, off, len) => if (iHave contains idx) { parent ! b }
+      case BT.PieceR(idx, off, block)     => fileManager ! FM.Write(idx, off, block)
+      case BT.CancelR(idx, off, len)      =>
+      case BT.HaveR(idx) =>
+        peerHas += idx
+        parent ! TorrentM.Available(Left(idx))
+      case _ =>
     }
   }
 

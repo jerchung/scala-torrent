@@ -65,7 +65,8 @@ class TorrentClient(id: String, fileName: String) extends Actor {
       val ip = remote.getHostString
       val port = remote.getPort
       val info = PeerInfo(peerId, Constant.ID.toByteString, torrent.hashedInfo, ip, port)
-      context.actorOf(Peer.props(info, connection, fileManager))
+      val protocolProp = TorrentProtocol.props(connection)
+      context.actorOf(Peer.props(info, protocolProp, fileManager))
     case TorrentM.Available(update) =>
       update match {
         case Right(bitfield) =>
@@ -130,10 +131,6 @@ class TorrentClient(id: String, fileName: String) extends Actor {
       val remote = new InetSocketAddress(ip, port)
       context.actorOf(ConnectingPeer.props(remote, peerId))
     }
-  }
-
-  def connectedPeer: Unit = {
-
   }
 
   // Get valid int between 6881 to 6889 inclusive
