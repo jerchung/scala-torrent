@@ -36,7 +36,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
 
   // Spawn needed actor(s)
   val trackerClient = context.actorOf(TrackerClient.props)
-  val server        = context.actorOf(PeerServer.props(IO(Tcp)))
+  val server        = context.actorOf(PeerServer.props)
   val fileManager   = context.actorOf(FileManager.props(torrent))
 
   // peerId -> ActorRef

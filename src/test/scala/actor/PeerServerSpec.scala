@@ -19,21 +19,34 @@ class PeerServerSpec(_sys: ActorSystem)
 
   def this() = this(ActorSystem("PeerServerSpec"))
 
-  case class FixtureParam(peerServer: TestActorRef[PeerServer], parent: TestProbe)
+  case class FixtureParam(
+    peerServer: TestActorRef[PeerServer],
+    parent: TestProbe,
+    manager: TestProbe
+  )
 
   def withFixture(test: OneArgTest) = {
     val manager = TestProbe()
     val testParent = TestProbe()
-    manager.ignoreMsg({ case m: Tcp.Bind => true})
-    val peerServerProps = Props(new PeerServer(manager.ref) with TestParent {
+    val peerServerProps = Props(new PeerServer
+        with TestParent with TestTcpManager {
       val parent = testParent.ref
+      val tcpManager = manager.ref
     })
     val peerServer = TestActorRef[PeerServer](peerServerProps)
-    val fixParam = FixtureParam(peerServer, testParent)
+    val fixParam = FixtureParam(peerServer, testParent, manager)
     withFixture(test.toNoArgTest(fixParam))
   }
 
   "The PeerServer Actor" when {
+
+    "first initiating" should {
+
+      "send a Bind message to the Tcp Manager" in { f =>
+        f.manager.expectMsgClass(classOf[Tcp.Bind])
+      }
+
+    }
 
     "receiving an incoming connection" should {
 

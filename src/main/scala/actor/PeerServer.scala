@@ -9,18 +9,19 @@ import java.net.InetSocketAddress
 import scala.concurrent.duration._
 
 object PeerServer {
-  def props(manager: ActorRef): Props = {
-    Props(new PeerServer(manager) with ProdParent)
+  def props: Props = {
+    Props(new PeerServer with ProdParent with ProdTcpManager)
   }
 }
 
 // Listen for new connections made from peers
 // Parent is Torrent Client
-class PeerServer(manager: ActorRef) extends Actor { this: Parent =>
+class PeerServer extends Actor {
+  this: Parent with TcpManager =>
 
   override def preStart(): Unit = {
     // Figure out which port to bind to later - right now 0 defaults to random
-    manager ! Tcp.Bind(self, new InetSocketAddress("localhost", 0))
+    tcpManager ! Tcp.Bind(self, new InetSocketAddress("localhost", 0))
   }
 
   /**
