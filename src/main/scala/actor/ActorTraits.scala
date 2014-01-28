@@ -2,6 +2,7 @@ package org.jerchung.torrent.actor
 
 import akka.actor.Actor
 import akka.actor.ActorRef
+import akka.actor.Scheduler
 import akka.io.IO
 import akka.io.Tcp
 
@@ -33,4 +34,17 @@ trait ProdTcpManager extends TcpManager { this: Actor =>
 
 trait TestTcpManager extends TcpManager { this: Actor =>
   val tcpManager: ActorRef
+}
+
+trait ScheduleProvider {
+  def scheduler: Scheduler
+}
+
+trait ProdScheduler extends ScheduleProvider { this: Actor =>
+  import context.system
+  val scheduler = context.system.scheduler
+}
+
+trait TestScheduler extends ScheduleProvider { this: Actor =>
+  val scheduler: Scheduler
 }

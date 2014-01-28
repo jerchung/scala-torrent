@@ -8,12 +8,6 @@ import akka.util.ByteString
 import java.net.InetSocketAddress
 import org.jerchung.torrent.actor.message.TorrentM
 
-// sealed trait ConnPeerProvider extends Parent with TcpManager
-
-// sealed trait ProdConnPeerProvider extends ProdParent with ProdTcpManager {
-//   this: Actor =>
-// }
-
 object ConnectingPeer {
   def props(remote: InetSocketAddress, peerId: ByteString): Props = {
     Props(new ConnectingPeer(remote, peerId) with ProdParent with ProdTcpManager)

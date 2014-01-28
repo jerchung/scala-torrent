@@ -2,7 +2,10 @@ package org.jerchung.torrent.actor
 
 import akka.actor.ActorSystem
 import akka.actor.Actor
+import akka.actor.ActorRef
 import akka.actor.Props
+import akka.actor.Scheduler
+import akka.actor.Cancellable
 import akka.testkit.TestActorRef
 import akka.testkit.TestKit
 import akka.testkit.TestProbe
@@ -12,26 +15,37 @@ import scala.collection.BitSet
 import org.scalatest._
 import org.jerchung.torrent.actor.message.BT
 import org.jerchung.torrent.actor.message.TorrentM
+import org.scalatest.mock._
+import org.mockito.Mockito._
+import org.mockito.Matchers._
+import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.ExecutionContext.Implicits.global
 
 class PeerSpec(_sys: ActorSystem)
     extends ActorSpec(_sys)
+    with MockitoSugar
     with FunSpecLike {
 
   def this() = this(ActorSystem("PeerSpec"))
 
   trait PeerActor {
-    private val peerId = Some(ByteString(0, 0, 2, 3, 4, 9))
-    private val ownId = ByteString(1, 3, 5, 7, 8, 2)
-    private val port = 929
-    private val infoHash = ByteString(10, 23, 5, 7, 19, 10, 100)
-    private val ip = "localhost"
-    private val info = PeerInfo(peerId, ownId, infoHash, ip, port)
+    val peerId = ByteString(0, 0, 2, 3, 4, 9)
+    val ownId = ByteString(1, 3, 5, 7, 8, 2)
+    val port = 929
+    val infoHash = ByteString(10, 23, 5, 7, 19, 10, 100)
+    val ip = "localhost"
+    val info = PeerInfo(Some(peerId), ownId, infoHash, ip, port)
     val fileManager = TestProbe()
     val connection = TestProbe()
     val testParent = TestProbe()
-    private val protocolProps = Props(new MockChild(connection.ref))
+    val mockScheduler = mock[Scheduler]
+    val protocolProps = Props(new MockChild(connection.ref))
     val peerProps = Props(new Peer(info, protocolProps, fileManager.ref)
-      with TestParent { val parent = testParent.ref })
+      with TestParent with TestScheduler {
+        val parent = testParent.ref
+        val scheduler = mockScheduler
+      }
+    )
   }
 
   // Set up for a peer actor in the normal receive state
@@ -44,7 +58,10 @@ class PeerSpec(_sys: ActorSystem)
 
   // Set up for peer in initiatedHandshake state
   trait InitHandshakePeerActor extends PeerActor {
-
+    connection.ignoreMsg({case m: BT.Handshake => true})
+    val peer = TestActorRef[Peer](peerProps)
+    val real = peer.underlyingActor
+    real.context.become(real.initiatedHandshake)
   }
 
   describe("A Peer Actor") {
@@ -243,6 +260,30 @@ class PeerSpec(_sys: ActorSystem)
           }
         }
 
+      }
+    }
+
+    describe("when in initiatedHandshake state") {
+
+      describe("when receiving a valid Handshake") {
+
+        it("should send Register message with peerId to parent") {
+          new InitHandshakePeerActor {
+            peer.receive(BT.Handshake(infoHash, peerId))
+            testParent.expectMsg(TorrentM.Register(peerId))
+          }
+        }
+
+        it("should then accept Bitfield mesages and send parent message") {
+          new InitHandshakePeerActor {
+            testParent.ignoreMsg({case m: TorrentM.Register => true})
+            peer.receive(BT.Handshake(infoHash, peerId))
+            val bitset = BitSet(0, 1, 2, 3)
+            peer.receive(BT.BitfieldR(bitset))
+            assert(real.peerHas == bitset)
+            testParent.expectMsg(TorrentM.Available(Right(bitset)))
+          }
+        }
       }
     }
   }

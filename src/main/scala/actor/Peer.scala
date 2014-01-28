@@ -12,16 +12,16 @@ import scala.language.postfixOps
 
 object Peer {
   def props(info: PeerInfo, protocolProps: Props, fileManager: ActorRef): Props = {
-    Props(new Peer(info, protocolProps, fileManager) with ProdParent)
+    Props(new Peer(info, protocolProps, fileManager) with ProdParent with ProdScheduler)
   }
 }
 
 // One of these actors per peer
 /* Parent must be Torrent Client */
 class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
-    extends Actor { this: Parent =>
+    extends Actor { this: Parent with ScheduleProvider =>
 
-  import context.{ system, dispatcher }
+  import context.dispatcher
 
   implicit val timeout = Timeout(5 millis)
 
@@ -131,19 +131,24 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   // Start off the scheduler to send keep-alive signals every 2 minutes and to
   // check that keep-alive is being sent to itself from the peer
   def heartbeat: Unit = {
-    checkHeartbeat
-    system.scheduler.schedule(0 millis, 1.5 minutes) { protocol ! BT.KeepAlive }
-  }
 
-  // Check if keep-alive is sent from peer
-  def checkHeartbeat: Unit = {
-    if (keepAlive) {
-      keepAlive = false
-      system.scheduler.scheduleOnce(3 minutes) { checkHeartbeat }
-    } else {
-      parent ! "No heartbeat"
-      context stop self
+    def checkHeartbeat: Unit = {
+      if (keepAlive) {
+        keepAlive = false
+        scheduler.scheduleOnce(3 minutes) { checkHeartbeat }
+      } else {
+        parent ! "No KeepAlive"
+        context stop self
+      }
     }
+
+    def sendHeartbeat: Unit = {
+      protocol ! BT.KeepAlive
+      scheduler.scheduleOnce(1.5 minutes) { sendHeartbeat }
+    }
+
+    checkHeartbeat
+    sendHeartbeat
   }
 
 }
