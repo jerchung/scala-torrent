@@ -18,8 +18,9 @@ import org.jerchung.torrent.actor.message.TorrentM
 import org.scalatest.mock._
 import org.mockito.Mockito._
 import org.mockito.Matchers._
+import org.hamcrest.core._
 import scala.concurrent.duration.FiniteDuration
-import scala.concurrent.ExecutionContext.Implicits.global
+// import scala.concurrent.ExecutionContext.Implicits.global
 
 class PeerSpec(_sys: ActorSystem)
     extends ActorSpec(_sys)
@@ -282,6 +283,19 @@ class PeerSpec(_sys: ActorSystem)
             peer.receive(BT.BitfieldR(bitset))
             assert(real.peerHas == bitset)
             testParent.expectMsg(TorrentM.Available(Right(bitset)))
+          }
+        }
+
+        ignore("should set off the scheduler for the KeepAlive heartbeats") {
+          new InitHandshakePeerActor {
+            import real.context.dispatcher
+            peer.receive(BT.Handshake(infoHash, peerId))
+            verify(mockScheduler, times(2)).scheduleOnce(
+              any[FiniteDuration],
+              any[ActorRef],
+              any[Runnable]
+            )(any[scala.concurrent.ExecutionContext],
+              any[ActorRef])
           }
         }
       }

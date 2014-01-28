@@ -32,7 +32,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   import context.{ dispatcher, system }
 
   // Constants
-  val torrent  = Torrent.fromFile(fileName)
+  val torrent = Torrent.fromFile(fileName)
 
   // Spawn needed actor(s)
   val trackerClient = context.actorOf(TrackerClient.props)

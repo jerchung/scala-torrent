@@ -20,5 +20,6 @@ libraryDependencies ++= Seq(
 libraryDependencies ++= Seq(
   "org.scalatest" % "scalatest_2.10" % "2.0" % "test",
   "com.typesafe.akka" %% "akka-testkit" % "2.2.3" % "test",
-  "org.mockito" % "mockito-core" % "1.9.5" % "test"
+  "org.mockito" % "mockito-core" % "1.9.5" % "test",
+  "org.specs2" %% "specs2" % "2.3.7" % "test"
 )
