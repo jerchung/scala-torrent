@@ -8,7 +8,7 @@ import akka.util.Timeout
 import java.net.InetSocketAddress
 import java.net.URLEncoder
 import org.jerchung.torrent.bencode.Bencode
-import org.jerchung.torrent.actor.message.{ TorrentM, TrackerM, BT , PR}
+import org.jerchung.torrent.actor.message.{ TorrentM, TrackerM, BT , PM}
 import org.jerchung.torrent.Constant
 import org.jerchung.torrent.Convert._
 import org.jerchung.torrent.Torrent
@@ -60,7 +60,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
     case TorrentM.Start(t) => startTorrent(t)
     case TrackerM.Response(r) => connectPeers(r)
     case TorrentM.Register(peerId) =>
-      router ! PR.Register(peerId)
+      router ! PM.Register(peerId)
       sender ! BT.Bitfield(bitfield, torrent.numPieces)
     case TorrentM.CreatePeer(connection, remote, peerId) =>
       val ip = remote.getHostString
@@ -80,7 +80,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
           wantedPiecesFreq(i) += 1
       }
     case TorrentM.DisconnectedPeer(peerId, peerHas) =>
-      router ! PR.Disconnected(peerId)
+      router ! PM.Disconnected(peerId)
       peerHas foreach { i =>
         allPiecesFreq(i) -= 1
         wantedPiecesFreq(i) -= 1

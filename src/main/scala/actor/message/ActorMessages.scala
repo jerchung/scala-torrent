@@ -23,7 +23,7 @@ object TorrentM {
   case class DisconnectedPeer(peerId: ByteString, peerHas: BitSet)
 }
 
-object PR {
+object PM {
   case class Register(peerId: ByteString)
   case class Diconnected(peerId: ByteString)
 }

@@ -3,6 +3,7 @@ package org.jerchung.torrent.actor
 import akka.actor.actor
 import akka.actor.ActorRef
 import akka.actor.Props
+import org.jerchung.actor.message.PM
 import scala.collection.mutable
 import scala.concurrent.duration._
 
@@ -28,14 +29,14 @@ class PeerManager extends Actor { this: Parent with ScheduleProvider =>
 
   }
 
-  val UnchokeFrequency: FiniteDuration = 10 seconds
+  val unchokeFrequency: FiniteDuration = 10 seconds
 
   val connectedPeers = mutable.Map[ByteString, PeerConnection]()
   val unchockedPeers = mutable.Map[ByteString, ActorRef]()
 
   def receive = {
-    case PR.Register(peerId) => connectedPeers(peerId) = PeerConnection(sender, 0.0)
-    case PR.Disconnected(peerId) => connectedPeers -= peerId
+    case PM.Register(peerId) => connectedPeers(peerId) = PeerConnection(sender, 0.0)
+    case PM.Disconnected(peerId) => connectedPeers -= peerId
     case msg: BT.Message => broadcast(msg)
   }
 
