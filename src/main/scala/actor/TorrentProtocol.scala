@@ -131,11 +131,11 @@ class TorrentProtocol(connection: ActorRef) extends Actor { this: Parent =>
           peerId = data.slice(48, 68))
         )
       } else {
-        length = data.take(4).toInt + 4
-        if (length == 4) {
+        length = data.take(4).toInt
+        if (length == 0) {
           msg = Some(BT.KeepAliveR)
         } else {
-          msg = Some(parseCommonReply(data, length))
+          msg = Some(parseCommonReply(data.drop(4), length))
         }
       }
 
@@ -145,27 +145,27 @@ class TorrentProtocol(connection: ActorRef) extends Actor { this: Parent =>
   }
 
   def parseCommonReply(data: ByteString, length: Int): BT.Reply = {
-    data(4) match {
-      case 0 => BT.ChokeR
-      case 1 => BT.UnchokeR
-      case 2 => BT.InterestedR
-      case 3 => BT.NotInterestedR
-      case 4 => BT.HaveR(data.slice(5, 9).toInt)
-      case 5 => BT.BitfieldR(data.slice(5, length).toBitSet)
-      case 6 => BT.RequestR(
+    data.headOption match {
+      case Some(0) => BT.ChokeR
+      case Some(1) => BT.UnchokeR
+      case Some(2) => BT.InterestedR
+      case Some(3) => BT.NotInterestedR
+      case Some(4) => BT.HaveR(data.slice(5, 9).toInt)
+      case Some(5) => BT.BitfieldR(data.slice(5, length).toBitSet)
+      case Some(6) => BT.RequestR(
         index = data.slice(5, 9).toInt,
         offset = data.slice(9, 13).toInt,
         length = data.slice(13, 17).toInt)
-      case 7 => BT.PieceR(
+      case Some(7) => BT.PieceR(
         index = data.slice(5, 9).toInt,
         offset = data.slice(9, 13).toInt,
         block = data.slice(13, length))
-      case 8 => BT.CancelR(
+      case Some(8) => BT.CancelR(
         index = data.slice(5, 9).toInt,
         offset = data.slice(9, 13).toInt,
         length = data.slice(13, 17).toInt)
-      case 9 => BT.PortR(data.slice(5, 7).toInt)
-      case _ => BT.InvalidR
+      case Some(9) => BT.PortR(data.slice(5, 7).toInt)
+      case _       => BT.InvalidR
     }
   }
 

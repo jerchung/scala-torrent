@@ -26,7 +26,7 @@ object FileManager {
  *
  * Parent of this actor *should* be TorrentClient
  *
- * @torrent Torrent file passed in since many values
+ * @torrent Torrent object passed in since many values
  */
 class FileManager(torrent: Torrent) extends Actor {
 

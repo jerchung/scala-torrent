@@ -16,8 +16,7 @@ object PeerServer {
 
 // Listen for new connections made from peers
 // Parent is Torrent Client
-class PeerServer extends Actor {
-  this: Parent with TcpManager =>
+class PeerServer extends Actor { this: Parent with TcpManager =>
 
   override def preStart(): Unit = {
     // Figure out which port to bind to later - right now 0 defaults to random

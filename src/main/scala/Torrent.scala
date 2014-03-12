@@ -70,10 +70,8 @@ class Torrent(
   val name: String = info("name").asInstanceOf[ByteString].toChars
 
   val files: List[TorrentFile] = fileMode match {
-    case Single =>
-      List(TorrentFile(info("length").asInstanceOf[Int], name))
-    case Multiple =>
-      getMultipleFiles
+    case Single   => List(TorrentFile(info("length").asInstanceOf[Int], name))
+    case Multiple => getMultipleFiles
   }
 
   // Total number of pieces

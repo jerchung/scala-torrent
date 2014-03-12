@@ -41,7 +41,6 @@ trait ScheduleProvider {
 }
 
 trait ProdScheduler extends ScheduleProvider { this: Actor =>
-  import context.system
   val scheduler = context.system.scheduler
 }
 

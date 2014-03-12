@@ -20,7 +20,6 @@ import org.mockito.Mockito._
 import org.mockito.Matchers._
 import org.hamcrest.core._
 import scala.concurrent.duration.FiniteDuration
-// import scala.concurrent.ExecutionContext.Implicits.global
 
 class PeerSpec(_sys: ActorSystem)
     extends ActorSpec(_sys)

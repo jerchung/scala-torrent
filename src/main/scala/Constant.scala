@@ -9,4 +9,5 @@ object Constant {
   val Version = "1000"
   val IDSuffix = "576611457638"
   val ID = s"-${ClientID}${Version}-${IDSuffix}"
+  val NumUnchokedPeers = 4
 }
