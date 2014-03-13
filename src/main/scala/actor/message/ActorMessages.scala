@@ -25,7 +25,7 @@ object TorrentM {
 
 object PM {
   case class Register(peerId: ByteString)
-  case class Diconnected(peerId: ByteString)
+  case class Disconnected(peerId: ByteString)
 }
 
 // FileManager

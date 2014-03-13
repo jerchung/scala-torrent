@@ -38,7 +38,7 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   val trackerClient = context.actorOf(TrackerClient.props)
   val server        = context.actorOf(PeerServer.props)
   val fileManager   = context.actorOf(FileManager.props(torrent))
-  val router        = context.actorOf(PeerRouter.props)
+  val router        = context.actorOf(PeerManager.props)
 
   // peerId -> ActorRef
   val connectedPeers = mutable.Map.empty[ByteString, ActorRef]

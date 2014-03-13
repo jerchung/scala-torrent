@@ -1,11 +1,10 @@
 package org.jerchung.torrent.actor
 
-import org.jerchung.torrent.actor.message.{ PeerM, BT }
+import org.jerchung.torrent.actor.message.{ PM, BT }
 import akka.actor.{ Actor, ActorRef, Props, PoisonPill }
 import akka.io.Tcp
 import akka.util.ByteString
 import java.net.InetSocketAddress
-import java.nio.ByteBuffer
 import org.jerchung.torrent.Convert._
 import org.jerchung.torrent.Constant
 import scala.collection.BitSet
@@ -139,7 +138,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor { this: Parent =>
         }
       }
 
-      parent ! msg.get
+      msg foreach { m => parent ! m }
       handleReply(data.drop(length))
     }
   }

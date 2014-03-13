@@ -4,7 +4,7 @@ import akka.actor.{ Actor, ActorRef, Props }
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
 import akka.util.Timeout
-import org.jerchung.torrent.actor.message.{ PeerM, BT, TorrentM, FM }
+import org.jerchung.torrent.actor.message.{ PM, BT, TorrentM, FM }
 import scala.collection.BitSet
 import scala.collection.mutable
 import scala.concurrent.duration._
