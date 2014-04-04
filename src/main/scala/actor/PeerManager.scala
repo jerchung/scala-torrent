@@ -42,9 +42,9 @@ class PeerManager extends Actor { this: Parent with ScheduleProvider =>
   var unchokedPeers = Map[ByteString, ActorRef]()
 
   def receive = {
-    case PM.Register(peerId) => connectedPeers(peerId) = PeerConnection(peerId, sender, 0.0)
+    case PM.Register(peerId)     => connectedPeers(peerId) = PeerConnection(peerId, sender, 0.0)
     case PM.Disconnected(peerId) => connectedPeers -= peerId
-    case msg: BT.Message => broadcast(msg)
+    case msg: BT.Message         => broadcast(msg)
   }
 
   def broadcast(message: BT.Message): Unit = {
@@ -54,17 +54,19 @@ class PeerManager extends Actor { this: Parent with ScheduleProvider =>
   // Find top K contributors and unchoke those, while choking everyone else
   def getMaxPeers: Map[ByteString, ActorRef] = {
     val maxK = new mutable.PriorityQueue[PeerConnection]()
+    var minPeerRate = 0.0;
     connectedPeers foreach { case (id, peer) =>
       if (maxK.size == Constant.NumUnchokedPeers) {
-        // Max actually returns the peerConnection with min rate due to the
-        // inversion of priorities
-        val minPeerRate = maxK.max.rate
         if (peer.rate > minPeerRate) {
           maxK.dequeue
           maxK.enqueue(peer)
+          minPeerRate = maxK.max.rate
         }
       } else {
         maxK.enqueue(peer)
+        // Max actually returns the peerConnection with min rate due to the
+        // inversion of priorities in the PeerConnection class
+        minPeerRate = maxK.max.rate
       }
     }
     maxK.foldLeft(Map[ByteString, ActorRef]()) { (peers, peerConn) =>
@@ -74,6 +76,7 @@ class PeerManager extends Actor { this: Parent with ScheduleProvider =>
 
   def unchokePeers: Unit = {
     unchokedPeers = getMaxPeers
+
     scheduler.scheduleOnce(unchokeFrequency) { unchokePeers }
   }
 

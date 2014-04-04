@@ -56,18 +56,12 @@ class TorrentClient(id: String, fileName: String) extends Actor {
   val wantedPiecesFreq = mutable.Map.empty[Int, Int].withDefaultValue(0)
 
   def receive = {
-    case p: Props => sender ! context.actorOf(p) // Actor creation
     case TorrentM.Start(t) => startTorrent(t)
     case TrackerM.Response(r) => connectPeers(r)
+    case TorrentM.CreatePeer(conn, rem, pid) => createPeer(conn, rem, pid)
     case TorrentM.Register(peerId) =>
-      router ! PM.Register(peerId)
+      registerPeer(peerId)
       sender ! BT.Bitfield(bitfield, torrent.numPieces)
-    case TorrentM.CreatePeer(connection, remote, peerId) =>
-      val ip = remote.getHostString
-      val port = remote.getPort
-      val info = PeerInfo(peerId, Constant.ID.toByteString, torrent.hashedInfo, ip, port)
-      val protocolProp = TorrentProtocol.props(connection)
-      context.actorOf(Peer.props(info, protocolProp, fileManager))
     case TorrentM.Available(update) =>
       update match {
         case Right(bitfield) =>
@@ -108,6 +102,14 @@ class TorrentClient(id: String, fileName: String) extends Actor {
     trackerClient ! TrackerM.Request(torrent.announce, request)
   }
 
+  def createPeer(connection, remote, peerId): Unit = {
+    val ip = remote.getHostString
+    val port = remote.getPort
+    val info = PeerInfo(peerId, Constant.ID.toByteString, torrent.hashedInfo, ip, port)
+    val protocolProp = TorrentProtocol.props(connection)
+    context.actorOf(Peer.props(info, protocolProp, fileManager))
+  }
+
   // Create a peer actor per peer and start the download
   // ByteString is implicity converted to Int
   def connectPeers(response: String): Unit = {
@@ -119,12 +121,15 @@ class TorrentClient(id: String, fileName: String) extends Actor {
     val numSeeders = resp("complete").asInstanceOf[Int]
     val numLeechers = resp("incomplete").asInstanceOf[Int]
     resp("peers") match {
-      case prs: List[_] => instantiatePeers(prs.asInstanceOf[List[Map[String, Any]]])
+      case prs: List[_] =>
+        instantiateConnectingPeers(prs.asInstanceOf[List[Map[String, Any]]])
       case _ =>
     }
   }
 
-  def instantiatePeers(peers: List[Map[String, Any]]): Unit = {
+  // Open connection to peers listed in bencoded files
+  // These peers will send a CreatePeer message to client when they're connected
+  def instantiateConnectingPeers(peers: List[Map[String, Any]]): Unit = {
     peers foreach { p =>
       val ip = p("ip").asInstanceOf[ByteString].toChars
       val port = p("port").asInstanceOf[Int]
