@@ -23,9 +23,9 @@ object TorrentM {
   case class DisconnectedPeer(peerId: ByteString, peerHas: BitSet)
 }
 
-object PM {
-  case class Register(peerId: ByteString)
-  case class Disconnected(peerId: ByteString)
+object PeerM {
+  case class Downloaded(id: ByteString, length: Int)
+  case class Connected(peerId: ByteString)
 }
 
 // FileManager

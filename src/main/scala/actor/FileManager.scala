@@ -66,7 +66,9 @@ class FileManager(torrent: Torrent) extends Actor {
   }
 
   def receive = {
-    case Read(idx, off, length) => getBlock(idx, off, length)
+    case Read(idx, off, length) =>
+      getBlock(idx, off, length)
+
     case Write(idx, off, block) =>
       pieces(idx) match {
         case p: UnfinishedPiece => insertBlock(p, off, block)

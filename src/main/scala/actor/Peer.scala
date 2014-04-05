@@ -4,7 +4,7 @@ import akka.actor.{ Actor, ActorRef, Props }
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
 import akka.util.Timeout
-import org.jerchung.torrent.actor.message.{ PM, BT, TorrentM, FM }
+import org.jerchung.torrent.actor.message.{ PeerM, BT, TorrentM, FM }
 import scala.collection.BitSet
 import scala.collection.mutable
 import scala.concurrent.duration._
@@ -60,7 +60,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   def waitingForHandshake: Receive = {
     case BT.HandshakeR(infoHash, peerId) if (infoHash == this.infoHash) =>
       protocol ! BT.Handshake(infoHash, ownId)
-      parent ! TorrentM.Register(peerId)
+      parent ! PeerM.Register(peerId)
       this.peerId = Some(peerId)
       heartbeat
       context.become(acceptBitfield)
@@ -70,7 +70,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   def initiatedHandshake: Receive = {
     case BT.Handshake(infoHash, peerId)
         if (infoHash == this.infoHash && peerId == this.peerId.get) =>
-      parent ! TorrentM.Register(peerId)
+      parent ! PeerM.Register(peerId)
       heartbeat
       context.become(acceptBitfield)
     case _ => context stop self
@@ -118,12 +118,19 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
       case BT.UnchokeR                    => peerChoking = false
       case BT.InterestedR                 => peerInterested = true
       case BT.NotInterestedR              => peerInterested = false
-      case b @ BT.RequestR(idx, off, len) => if (iHave contains idx) { parent ! b }
-      case BT.PieceR(idx, off, block)     => fileManager ! FM.Write(idx, off, block)
-      case BT.CancelR(idx, off, len)      =>
+
+      case b @ BT.RequestR(idx, off, len) =>
+        if (iHave contains idx) { parent ! b }
+
+      case BT.PieceR(idx, off, block) =>
+        peerId map { pid => parent ! PeerM.Downloaded(pid, block.length) }
+        fileManager ! FM.Write(idx, off, block)
+
       case BT.HaveR(idx) =>
         peerHas += idx
         parent ! TorrentM.Available(Left(idx))
+
+      case BT.CancelR(idx, off, len) =>
       case _ =>
     }
   }
