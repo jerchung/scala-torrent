@@ -56,7 +56,7 @@ object TorrentClient {
     private val piecesMap = mutable.Map[Int, PieceInfo].empty
 
     // Initializing a PieceInfo for each piece
-    (0 to numPieces).foreach { idx =>
+    (0 until numPieces).foreach { idx =>
       val piece = PieceInfo(idx, 0)
       add(piece)
     }
@@ -89,9 +89,7 @@ object TorrentClient {
       val availablePiecesBuffer = mutable.ArrayBuffer[Int]()
 
       @tailrec
-      def populateRarePieces(
-          pieces: mutable.SortedSet[PieceInfo],
-          count: Int = 0): Unit = {
+      def populateRarePieces(pieces: List[PieceInfo], count: Int = 0): Unit = {
         if (count <= k && !pieces.isEmpty) {
           val pieceInfo = pieces.head
           if (possibles(pieceInfo.index)) {
@@ -101,13 +99,12 @@ object TorrentClient {
         }
       }
 
-      populateRarePieces(piecesSet)
+      populateRarePieces(piecesSet.toList)
       val availablePieces = availablePiecesBuffer.toArray
       val index = chosenPieces(
         (new Random).nextInt(
           k min availablePieces.size))
       chosenPieces(index)
-
     }
 
   }
@@ -121,6 +118,68 @@ object TorrentClient {
 
     // All the peers
     val peers = mutable.Map.empty[ByteString, PeerConnection]
+
+    // Set of peerIds of current unchoked peers
+    var currentUnchokedPeers = Set[ByteString]
+
+    def connect(peerId: ByteString, peer: ActorRef): Unit = {
+      peers(peerId) = PeerConnection(peerId, peer, 0.0)
+    }
+
+    def update(peerId: ByteString, downloaded: Double): Unit = {
+      peers(peerId).rate += downloaded
+    }
+
+    // Find top k contributors and unchoke those, while choking everyone else
+    def kMaxPeers(k: Int): Set[ByteString] = {
+      val maxK = new mutable.PriorityQueue[PeerConnection]()
+      var minPeerRate = 0.0;
+      connectedPeers foreach { case (id, peer) =>
+        if (maxK.size == k) {
+          if (peer.rate > minPeerRate) {
+            maxK.dequeue
+            maxK.enqueue(peer)
+            minPeerRate = maxK.max.rate
+          }
+        } else {
+          maxK.enqueue(peer)
+          // Max actually returns the peerConnection with min rate due to the
+          // inversion of priorities in the PeerConnection class
+          minPeerRate = maxK.max.rate
+        }
+
+        // Reset rate for next choosing
+        peer.rate = 0.0
+      }
+      maxK.foldLeft(Set[ByteString]()) { (peers, peerConn) =>
+        peerConn.id + peers
+      }
+    }
+
+    // First choke the peers in currentUnchokedPeers, then unchoke the selected
+    // peers
+    def unchoke(chosenPeers: Set[ByteString]): Unit = {
+      val peersToChoke = currentUnchokedPeers &~ chosenPeers
+      chosenPeers foreach { id => peers(id).peer ! BT.Unchoke }
+      peersToChoke foreach { id => peers(id).peer ! BT.Choke }
+      currentUnchokedPeers = chosenPeers
+    }
+
+    // Talk to ALL peers
+    def broadcast(msg: Any): Unit = {
+      peers foreach { peerConn => peerConn.peer ! msg }
+    }
+
+    // Talk to selected peers
+    def talk(msg: Any, peerIds: List[ByteString]): Unit = {
+      peerIds foreach { pid => peers(pid).peer ! msg }
+    }
+
+    // Talk to all peers except those selected
+    def talkExcept(msg: Any, excludedPeers: List[ByteString]): Unit = {
+      val includedPeers = peers -- excludedPeers
+      includedPeers foreach { peerConn => peerConn.peer ! msg }
+    }
 
   }
 
@@ -143,14 +202,14 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
   val server        = context.actorOf(PeerServer.props)
   val fileManager   = context.actorOf(FileManager.props(torrent))
 
-  // peerId -> ActorRef
-  val connectedPeers = mutable.Map.empty[ByteString, PeerConnection]
+  // ConnectedPeers keeps track of upload rate and
+  val connectedPeers = new ConnectedPeers
 
   // Of the connectedPeers, these are the peers that are interested / unchoked
   val communicatingPeers = mutable.Map.empty[ByteString, ActorRef]
 
   // SortedPieces that will sort piece indexes in order starting from rarest
-  val pieces = new SortedPieces
+  val pieces = new SortedPieces(torrent.numPieces)
 
   // This bitset holds which pieces are done
   var completedPieces = BitSet.empty
@@ -178,7 +237,9 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
       val protocolProp = TorrentProtocol.props(connection)
       context.actorOf(Peer.props(info, protocolProp, fileManager))
 
+    // Unchoke top K peers for uploading to
     case TorrentM.Unchoke =>
+
       val unchokePeers = getMaxPeers(Constant.NumUnchokedPeers)
       connectedPeers foreach { case (peerId, peerConn =>
         if (!unchokePeers.contains(peerId)) { peerConn.peer ! BT.Choke }
@@ -216,7 +277,7 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
       broadcast(BT.Have(i))
 
     case PeerM.Connected(peerId) =>
-      connectedPeers(peerId) = PeerConnection(peerId, sender, 0.0)
+      connectedPeers.connect(peerId)
       sender ! BT.Bitfield(bitfield, torrent.numPieces)
 
     case PeerM.Ready(peerHas) =>
@@ -225,7 +286,7 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
       requestedPieces += idx
 
     case PeerM.Downloaded(peerId, size) =>
-      connectedPeers(peerId).rate += size
+      connectedPeers.update(peerId, size)
   }
 
   def startTorrent(fileName: String): Unit = {

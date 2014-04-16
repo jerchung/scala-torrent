@@ -1,6 +1,6 @@
 package org.jerchung.torrent.actor
 
-import akka.actor.{ Actor, ActorRef, Props }
+import akka.actor.{ Actor, ActorRef, Props, Cancellable }
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
 import akka.util.Timeout
@@ -47,6 +47,9 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   var keepAlive                    = true
   var amChoking, peerChoking       = true
   var amInterested, peerInterested = false
+
+  // Keep reference to KeepAlive sending task
+  var keepAliveTask: Option[Cancellable] = None
 
   // Depending on if peerId is None or Some, then that dictates whether this
   // actor initiates a handshake with a peer, or waits for the peer to send a
@@ -106,8 +109,16 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   }
 
   def receive = {
-    case m: BT.Message => handleMessage(m)
-    case r: BT.Reply => handleReply(r)
+
+    // Don't need to send KeepAlive message if already sending another message
+    case m: BT.Message =>
+      keepAliveTask foreach { task => task.cancel }
+      handleMessage(m)
+      keepAliveTask = Some(scheduler.scheduleOnce(1.5 minutes) { sendHeartbeat })
+
+    case r: BT.Reply =>
+      keepAlive = true
+      handleReply(r)
   }
 
   /*
@@ -169,11 +180,12 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
 
     def sendHeartbeat: Unit = {
       protocol ! BT.KeepAlive
-      scheduler.scheduleOnce(1.5 minutes) { sendHeartbeat }
+      keepAliveTask = Some(scheduleOnce(1.5 minutes) { sendHeartbeat })
     }
 
     checkHeartbeat
     sendHeartbeat
   }
+
 
 }
