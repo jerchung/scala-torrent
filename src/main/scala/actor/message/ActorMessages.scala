@@ -26,6 +26,7 @@ object TorrentM {
 object PeerM {
   case class Downloaded(id: ByteString, length: Int)
   case class Connected(peerId: ByteString)
+  case class Ready(peerHas: BitSet)
 }
 
 // FileManager

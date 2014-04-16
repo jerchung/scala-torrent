@@ -9,22 +9,15 @@ import java.net.InetSocketAddress
 import java.net.URLEncoder
 import org.jerchung.torrent.bencode.Bencode
 import org.jerchung.torrent.actor.message.{ TorrentM, TrackerM, BT, PeerM}
+import org.jerchung.torrent.actor.Peer.PeerInfo
 import org.jerchung.torrent.Constant
 import org.jerchung.torrent.Convert._
 import org.jerchung.torrent.Torrent
+import scala.annotation.tailrec
 import scala.collection.BitSet
 import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.util.Random
-
-// This case class encapsulates the information needed to create a peer actor
-case class PeerInfo(
-  peerId: Option[ByteString],
-  ownId: ByteString,
-  infoHash: ByteString,
-  ip: String,
-  port: Int
-)
 
 object TorrentClient {
 
@@ -32,7 +25,7 @@ object TorrentClient {
     Props(new TorrentClient(fileName: String) with ProdScheduler)
   }
 
-  case class PeerConnection (id: ByteString, peer: ActorRef, var rate: Double)
+  case class PeerConnection(id: ByteString, peer: ActorRef, var rate: Double)
       extends Ordered[PeerConnection] {
 
     // Want the minimum to be highest priority
@@ -42,17 +35,89 @@ object TorrentClient {
     }
   }
 
+  case class PieceInfo(index: Int, var count: Int)
+      extends Ordered[PieceInfo] {
+    def compare(pieceCount: PieceInfo): Int = {
+      count.compare(pieceCount.count)
+    }
+  }
+
+  /*
+   * Class used to keep track of the frequency of each piece as well as provide
+   * an interface to get a sorted list of the pieces and to add and remove pieces
+   * at will
+   */
+  class SortedPieces {
+
+    // Set of pieces ordered by frequency starting from rarest
+    private val piecesSet = mutable.SortedSet[PieceInfo].empty
+
+    // Map of piece index -> pieceInfo to provide access
+    private val piecesMap = mutable.Map[Int, PieceInfo].empty
+
+    def add(piece: PieceInfo): Unit = {
+      piecesMap(piece.index) = piece
+      piecesSet += piece
+    }
+
+    // Given the index of a piece, remove said piece, then return the piece
+    def remove(index: Int): PieceInfo = {
+      val piece = piecesMap(index)
+      piecesMap -= index
+      piecesSet -= piece
+      piece
+    }
+
+    // Update the frequency of the piece of a given index
+    def update(index: Int, count: Int): Unit = {
+      val piece = remove(index)
+      piece.count += count
+      add(piece)
+    }
+
+    // Perform the jittering of choosing from k of the rarest pieces whose
+    // indexes are contained in possibles
+    // Return the index of the chosen piece
+    def rarest(possibles: BitSet, k: Int): Int = {
+      val availablePiecesBuffer = mutable.ArrayBuffer[Int]()
+
+      @tailrec
+      def populateRarePieces(
+          pieces: mutable.SortedSet[PieceInfo],
+          count: Int = 0): Unit = {
+        if (count <= k && !pieces.isEmpty) {
+          val pieceInfo = pieces.head
+          if (possibles(pieceInfo.index)) {
+            availablePiecesBuffer += pieceInfo.index
+          }
+          populateRarePieces(pieces.drop(1), count + 1)
+        }
+      }
+
+      populateRarePieces(piecesSet)
+      val availablePieces = availablePiecesBuffer.toArray
+      val index = chosenPieces(
+        (new Random).nextInt(
+          rarePieceJitter min availablePieces.size))
+      chosenPieces(index)
+
+    }
+
+  }
+
 }
 
 // This actor takes care of the downloading of a *single* torrent
 class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
 
   import context.dispatcher
-  import TorrentClient.PeerConnection
+  import TorrentClient._
 
   // Constants
   val torrent = Torrent.fromFile(fileName)
   val unchokeFrequency: FiniteDuration = 10 seconds
+  val optimisticUnchokeFrequency: FiniteDuration = 30 seconds
+  val rarePieceJitter = 20
 
   // Spawn needed actor(s)
   val trackerClient = context.actorOf(TrackerClient.props)
@@ -65,8 +130,14 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
   // Of the connectedPeers, these are the peers that are interested / unchoked
   val communicatingPeers = mutable.Map.empty[ByteString, ActorRef]
 
+  // SortedPieces that will sort piece indexes in order starting from rarest
+  val pieces = new SortedPieces
+
   // This bitset holds which pieces are done
-  var bitfield = BitSet.empty
+  var completedPieces = BitSet.empty
+
+  // This bitset holds which pieces are currently being requested
+  var requestedPieces = BitSet.empty
 
   // Frequency of all available pieces
   val allPiecesFreq = mutable.Map.empty[Int, Int].withDefaultValue(0)
@@ -84,43 +155,59 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
     case TorrentM.CreatePeer(connection, remote, peerId) =>
       val ip = remote.getHostString
       val port = remote.getPort
-      val info = PeerInfo(peerId, Constant.ID.toByteString, torrent.hashedInfo, ip, port)
+      val info = PeerInfo(peerId, Constant.ID.toByteString, torrent.infoHash, ip, port)
       val protocolProp = TorrentProtocol.props(connection)
       context.actorOf(Peer.props(info, protocolProp, fileManager))
 
-    case TorrentM.UnchokePeers =>
-      communicatingPeers = connectedPeers
-      scheduler.scheduleOnce(unchokeFrequency) { self ! TorrentM.UnchokePeers }
+    case TorrentM.Unchoke =>
+      val unchokePeers = getMaxPeers(Constant.NumUnchokedPeers)
+      connectedPeers foreach { case (peerId, peerConn =>
+        if (!unchokePeers.contains(peerId)) { peerConn.peer ! BT.Choke }
+      }
+      unchokePeers foreach { case (peerId, peer) =>
+        peer ! BT.Unchoke
+      }
+      scheduler.scheduleOnce(unchokeFrequency) {
+        self ! TorrentM.Unchoke
+      }
+
+    case TorrentM.OptimisticUnchoke =>
+      var chosenPeer: ByteString =
+      scheduler.scheduleOnce(optimisticUnchokeFrequency) {
+        self ! TorrentM.OptimisticUnchoke
+      }
+      // Todo implement optimistic unchoke
 
     case TorrentM.Available(update) =>
       update match {
         case Right(bitfield) =>
           bitfield foreach { i =>
-            allPiecesFreq(i) += 1
-            wantedPiecesFreq(i) += 1
+            pieces.update(i, 1)
           }
         case Left(i) =>
-          allPiecesFreq(i) += 1
-          wantedPiecesFreq(i) += 1
+          pieces.update(i, 1)
       }
 
     case TorrentM.DisconnectedPeer(peerId, peerHas) =>
       connectedPeers -= peerId
       communicatingPeers -= peerId
       peerHas foreach { i =>
-        allPiecesFreq(i) -= 1
-        wantedPiecesFreq(i) -= 1
-        if (wantedPiecesFreq(i) <= 0) { wantedPiecesFreq -= i } // Remove key
+        pieces.update(i, -1)
       }
 
     case TorrentM.PieceDone(i) =>
-      bitfield += i
-      wantedPiecesFreq -= i
+      completedPieces += i
+      requestedPieces -= i
       broadcast(BT.Have(i))
 
     case PeerM.Connected(peerId) =>
       connectedPeers(peerId) = PeerConnection(peerId, sender, 0.0)
       sender ! BT.Bitfield(bitfield, torrent.numPieces)
+
+    case PeerM.Ready(peerHas) =>
+      val idx = pieces.rarest(peerHas, rarePieceJitter)
+      sender ! PeerM.DownloadPiece(idx)
+      requestedPieces += idx
 
     case PeerM.Downloaded(peerId, size) =>
       connectedPeers(peerId).rate += size
@@ -128,7 +215,7 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
 
   def startTorrent(fileName: String): Unit = {
     val request = Map[String, Any](
-      "info_hash" -> urlEncode(torrent.hashedInfo.toChars),
+      "info_hash" -> urlEncode(torrent.infoHash.toChars),
       "peer_id" -> urlEncode(Constant.ID),
       "port" -> validTorrentPort,
       "uploaded" -> 0,
@@ -140,14 +227,6 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
 
     // Will get TrackerM.Response back
     trackerClient ! TrackerM.Request(torrent.announce, request)
-  }
-
-  def createPeer(connection, remote, peerId): Unit = {
-    val ip = remote.getHostString
-    val port = remote.getPort
-    val info = PeerInfo(peerId, Constant.ID.toByteString, torrent.hashedInfo, ip, port)
-    val protocolProp = TorrentProtocol.props(connection)
-    context.actorOf(Peer.props(info, protocolProp, fileManager))
   }
 
   // Create a peer actor per peer and start the download
@@ -199,12 +278,12 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
     }
   }*/
 
-  // Find top K contributors and unchoke those, while choking everyone else
-  def getMaxPeers: Map[ByteString, ActorRef] = {
+  // Find top k contributors and unchoke those, while choking everyone else
+  def getMaxPeers(k: Int): Map[ByteString, ActorRef] = {
     val maxK = new mutable.PriorityQueue[PeerConnection]()
     var minPeerRate = 0.0;
     connectedPeers foreach { case (id, peer) =>
-      if (maxK.size == Constant.NumUnchokedPeers) {
+      if (maxK.size == k) {
         if (peer.rate > minPeerRate) {
           maxK.dequeue
           maxK.enqueue(peer)
@@ -216,6 +295,7 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
         // inversion of priorities in the PeerConnection class
         minPeerRate = maxK.max.rate
       }
+      peer.rate = 0.0
     }
     maxK.foldLeft(Map[ByteString, ActorRef]()) { (peers, peerConn) =>
       peers + (peerConn.id -> peerConn.peer)
@@ -230,10 +310,6 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
   // Send message to currently communicating peers
   def communicate(message: Any): Unit = {
     communicatingPeers foreach { case (id, peer) => peer ! message }
-  }
-
-  def scheduleUnchoke: Unit = {
-    scheduler.scheduleOnce(unchokeFrequency) { self ! TorrentM.UnchokePeers }
   }
 
 }

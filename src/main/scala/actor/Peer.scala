@@ -5,6 +5,7 @@ import akka.io.{ IO, Tcp }
 import akka.util.ByteString
 import akka.util.Timeout
 import org.jerchung.torrent.actor.message.{ PeerM, BT, TorrentM, FM }
+import org.jerchung.torrent.actor.Peer.PeerInfo
 import scala.collection.BitSet
 import scala.collection.mutable
 import scala.concurrent.duration._
@@ -14,6 +15,15 @@ object Peer {
   def props(info: PeerInfo, protocolProps: Props, fileManager: ActorRef): Props = {
     Props(new Peer(info, protocolProps, fileManager) with ProdParent with ProdScheduler)
   }
+
+  // This case class encapsulates the information needed to create a peer actor
+  case class PeerInfo(
+    peerId: Option[ByteString],
+    ownId: ByteString,
+    infoHash: ByteString,
+    ip: String,
+    port: Int
+  )
 }
 
 // One of these actors per peer
@@ -22,8 +32,6 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
     extends Actor { this: Parent with ScheduleProvider =>
 
   import context.dispatcher
-
-  implicit val timeout = Timeout(5 millis)
 
   val protocol = context.actorOf(protocolProps)
 
@@ -60,33 +68,41 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   def waitingForHandshake: Receive = {
     case BT.HandshakeR(infoHash, peerId) if (infoHash == this.infoHash) =>
       protocol ! BT.Handshake(infoHash, ownId)
-      parent ! PeerM.Register(peerId)
+      parent ! PeerM.Connected(peerId)
       this.peerId = Some(peerId)
       heartbeat
       context.become(acceptBitfield)
+
     case _ => context stop self
   }
 
   def initiatedHandshake: Receive = {
     case BT.Handshake(infoHash, peerId)
         if (infoHash == this.infoHash && peerId == this.peerId.get) =>
-      parent ! PeerM.Register(peerId)
+      parent ! PeerM.Connected(peerId)
       heartbeat
       context.become(acceptBitfield)
+
     case _ => context stop self
   }
 
   /**
-   * Bitfield must be first message sent to you from peer for it to be valid
+   * Bitfield must be first reply message sent to you from peer for it to be valid
+   * Can also accept messages from client, but then stays in acceptBitfield
+   * state
    */
   def acceptBitfield: Receive = {
     case BT.BitfieldR(bitfield) =>
       peerHas |= bitfield
       parent ! TorrentM.Available(Right(peerHas))
       context.become(receive)
+
     case msg =>
       receive(msg)
-      context.become(receive)
+      msg match {
+        case BT.Reply => context.become(receive)
+        case _ =>
+      }
   }
 
   def receive = {
@@ -119,8 +135,10 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
       case BT.InterestedR                 => peerInterested = true
       case BT.NotInterestedR              => peerInterested = false
 
-      case b @ BT.RequestR(idx, off, len) =>
-        if (iHave contains idx) { parent ! b }
+      case BT.RequestR(idx, off, len) =>
+        if (iHave contains idx && !peerChoking) {
+          fileManager ! FM.Read(idx, off, len)
+        }
 
       case BT.PieceR(idx, off, block) =>
         peerId map { pid => parent ! PeerM.Downloaded(pid, block.length) }

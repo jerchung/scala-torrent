@@ -82,6 +82,8 @@ object TorrentProtocol {
  */
 class TorrentProtocol(connection: ActorRef) extends Actor { this: Parent =>
 
+  import TorrentProtocol.Message._
+
   override def preStart(): Unit = {
     connection ! Tcp.Register(self)
   }

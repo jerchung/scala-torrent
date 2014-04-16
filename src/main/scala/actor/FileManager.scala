@@ -83,9 +83,9 @@ class FileManager(torrent: Torrent) extends Actor {
   def insertBlock(piece: UnfinishedPiece, offset: Int, block: ByteString): Unit = {
     piece.insert(offset, block) match {
       case p @ InMemPiece(idx, off, size, hash, data) =>
+        context.parent ! TorrentM.PieceDone(idx)
         pieces(idx) = new InDiskPiece(idx, off, size, hash, diskIO)
         cachedPieces(idx) = p
-        context.parent ! TorrentM.PieceDone(idx)
       case InvalidPiece(idx, off, size, hash) =>
         pieces(idx) = new UnfinishedPiece(idx, off, size, hash, diskIO)
         context.parent ! TorrentM.PieceInvalid(idx)

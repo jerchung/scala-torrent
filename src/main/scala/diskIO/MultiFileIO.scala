@@ -5,7 +5,7 @@ import scala.collection.mutable
 import java.nio.ByteBuffer
 import org.jerchung.torrent.TorrentFile
 
-class MultiFileIO(pieceSize: Int, files: List[TorrentFile]) extends DiskIO{
+class MultiFileIO(pieceSize: Int, files: List[TorrentFile]) extends DiskIO {
 
   val ioFiles = files map { f => new SingleFileIO(f.path, pieceSize, f.length) }
   val totalSize = files.foldLeft(0) { (acc, f) => acc + f.length }
