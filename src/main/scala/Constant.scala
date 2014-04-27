@@ -7,6 +7,9 @@ object Constant {
   val Charset = "ISO-8859-1"
   val HashAlgo = "SHA-1"
 
+  // Block size is 2^14 or 16kB
+  val BlockSize = 16384
+
   val ClientID = "ST"
   val Version = "1000"
   val IDSuffix = "576611457638"

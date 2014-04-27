@@ -85,6 +85,7 @@ object TorrentClient {
     // Perform the jittering of choosing from k of the rarest pieces whose
     // indexes are contained in possibles
     // Return the index of the chosen piece
+    // Return -1 if no possibilities to choose
     def rarest(possibles: BitSet, k: Int): Int = {
       val availablePiecesBuffer = mutable.ArrayBuffer[Int]()
 
@@ -95,16 +96,20 @@ object TorrentClient {
           if (possibles(pieceInfo.index)) {
             availablePiecesBuffer += pieceInfo.index
           }
-          populateRarePieces(pieces.drop(1), count + 1)
+          populateRarePieces(pieces.tail, count + 1)
         }
       }
 
       populateRarePieces(piecesSet.toList)
       val availablePieces = availablePiecesBuffer.toArray
-      val index = chosenPieces(
-        (new Random).nextInt(
-          k min availablePieces.size))
-      chosenPieces(index)
+      if (availablePieces.isEmpty) {
+        -1
+      } else {
+        val index = chosenPieces(
+          (new Random).nextInt(
+            k min availablePieces.size))
+        chosenPieces(index)
+      }
     }
 
   }
@@ -120,17 +125,22 @@ object TorrentClient {
     val peers = mutable.Map.empty[ByteString, PeerConnection]
 
     // Set of peerIds of current unchoked peers
-    var currentUnchokedPeers = Set[ByteString]
+    var currentUnchokedPeers = Set[ByteString].empty
 
-    def connect(peerId: ByteString, peer: ActorRef): Unit = {
+    def add(peerId: ByteString, peer: ActorRef): Unit = {
       peers(peerId) = PeerConnection(peerId, peer, 0.0)
     }
 
-    def update(peerId: ByteString, downloaded: Double): Unit = {
+    def updateRate(peerId: ByteString, downloaded: Double): Unit = {
       peers(peerId).rate += downloaded
     }
 
-    // Find top k contributors and unchoke those, while choking everyone else
+    def remove(peerId: ByteString): Unit = {
+      peers -= peerId
+      currentUnchokedPeers -= peerId
+    }
+
+    // Find top k contributors
     def kMaxPeers(k: Int): Set[ByteString] = {
       val maxK = new mutable.PriorityQueue[PeerConnection]()
       var minPeerRate = 0.0;
@@ -143,6 +153,7 @@ object TorrentClient {
           }
         } else {
           maxK.enqueue(peer)
+
           // Max actually returns the peerConnection with min rate due to the
           // inversion of priorities in the PeerConnection class
           minPeerRate = maxK.max.rate
@@ -205,9 +216,6 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
   // ConnectedPeers keeps track of upload rate and
   val connectedPeers = new ConnectedPeers
 
-  // Of the connectedPeers, these are the peers that are interested / unchoked
-  val communicatingPeers = mutable.Map.empty[ByteString, ActorRef]
-
   // SortedPieces that will sort piece indexes in order starting from rarest
   val pieces = new SortedPieces(torrent.numPieces)
 
@@ -239,20 +247,13 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
 
     // Unchoke top K peers for uploading to
     case TorrentM.Unchoke =>
-
-      val unchokePeers = getMaxPeers(Constant.NumUnchokedPeers)
-      connectedPeers foreach { case (peerId, peerConn =>
-        if (!unchokePeers.contains(peerId)) { peerConn.peer ! BT.Choke }
-      }
-      unchokePeers foreach { case (peerId, peer) =>
-        peer ! BT.Unchoke
-      }
+      val chosenPeers = connectedPeers.kMaxPeers(Constant.NumUnchokedPeers)
+      connectedPeers.unchoke(chosenPeers)
       scheduler.scheduleOnce(unchokeFrequency) {
         self ! TorrentM.Unchoke
       }
 
     case TorrentM.OptimisticUnchoke =>
-      var chosenPeer: ByteString =
       scheduler.scheduleOnce(optimisticUnchokeFrequency) {
         self ! TorrentM.OptimisticUnchoke
       }
@@ -274,19 +275,24 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
     case TorrentM.PieceDone(i) =>
       completedPieces += i
       requestedPieces -= i
-      broadcast(BT.Have(i))
+      connectedPeers.broadcast(BT.Have(i))
 
     case PeerM.Connected(peerId) =>
-      connectedPeers.connect(peerId)
+      connectedPeers.add(peerId, sender)
       sender ! BT.Bitfield(bitfield, torrent.numPieces)
 
     case PeerM.Ready(peerHas) =>
-      val idx = pieces.rarest(peerHas, RarePieceJitter)
-      sender ! PeerM.DownloadPiece(idx)
-      requestedPieces += idx
+      val possibles = peerHas &~ (completedPieces | requestedPieces)
+      if (possibles.isEmpty) {
+        sender ! BT.NotInterested
+      } else {
+        val idx = pieces.rarest(possibles, RarePieceJitter)
+        sender ! PeerM.DownloadPece(idx)
+        requestPieces += idx
+      }
 
     case PeerM.Downloaded(peerId, size) =>
-      connectedPeers.update(peerId, size)
+      connectedPeers.updateRate(peerId, size)
   }
 
   def startTorrent(fileName: String): Unit = {
@@ -353,39 +359,5 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
       Peer()
     }
   }*/
-
-  // Find top k contributors and unchoke those, while choking everyone else
-  def getMaxPeers(k: Int): Map[ByteString, ActorRef] = {
-    val maxK = new mutable.PriorityQueue[PeerConnection]()
-    var minPeerRate = 0.0;
-    connectedPeers foreach { case (id, peer) =>
-      if (maxK.size == k) {
-        if (peer.rate > minPeerRate) {
-          maxK.dequeue
-          maxK.enqueue(peer)
-          minPeerRate = maxK.max.rate
-        }
-      } else {
-        maxK.enqueue(peer)
-        // Max actually returns the peerConnection with min rate due to the
-        // inversion of priorities in the PeerConnection class
-        minPeerRate = maxK.max.rate
-      }
-      peer.rate = 0.0
-    }
-    maxK.foldLeft(Map[ByteString, ActorRef]()) { (peers, peerConn) =>
-      peers + (peerConn.id -> peerConn.peer)
-    }
-  }
-
-  // Send message to ALL connected peers
-  def broadcast(message: Any): Unit = {
-    connectedPeers foreach { case (id, peerConn) => peerConn.peer ! message }
-  }
-
-  // Send message to currently communicating peers
-  def communicate(message: Any): Unit = {
-    communicatingPeers foreach { case (id, peer) => peer ! message }
-  }
 
 }

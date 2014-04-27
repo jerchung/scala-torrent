@@ -6,6 +6,8 @@ import akka.util.ByteString
 import akka.util.Timeout
 import org.jerchung.torrent.actor.message.{ PeerM, BT, TorrentM, FM }
 import org.jerchung.torrent.actor.Peer.PeerInfo
+import org.jerchung.torrent.Constant
+import scala.annotation.tailrec
 import scala.collection.BitSet
 import scala.collection.mutable
 import scala.concurrent.duration._
@@ -24,6 +26,9 @@ object Peer {
     ip: String,
     port: Int
   )
+
+  // Encapsulate info of the piece being currently downloaded by the peer
+  case class PieceDownload(index: Int = 0, size: Int = 0, var offset: Int = 0)
 }
 
 // One of these actors per peer
@@ -32,7 +37,9 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
     extends Actor { this: Parent with ScheduleProvider =>
 
   import context.dispatcher
+  import Peer.PieceDownload
 
+  val MaxRequestPipeline = 5
   val protocol = context.actorOf(protocolProps)
 
   var peerId: Option[ByteString] = info.peerId
@@ -49,7 +56,13 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   var amInterested, peerInterested = false
 
   // Keep reference to KeepAlive sending task
-  var keepAliveTask: Option[Cancellable] = None
+  var keepAliveTask: Cancellable = _
+
+  // A peer can only download one piece at a time
+  // Keep track of the information in the currently downloading piece
+  var currentPieceDownload = PieceDownload()
+  var pipelinedRequests = Set[Int]()
+
 
   // Depending on if peerId is None or Some, then that dictates whether this
   // actor initiates a handshake with a peer, or waits for the peer to send a
@@ -104,7 +117,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
       receive(msg)
       msg match {
         case BT.Reply => context.become(receive)
-        case _ =>
+        case _ => // Do nothing
       }
   }
 
@@ -112,13 +125,18 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
 
     // Don't need to send KeepAlive message if already sending another message
     case m: BT.Message =>
-      keepAliveTask foreach { task => task.cancel }
+      keepAliveTask.cancel
       handleMessage(m)
-      keepAliveTask = Some(scheduler.scheduleOnce(1.5 minutes) { sendHeartbeat })
+      keepAliveTask = scheduler.scheduleOnce(1.5 minutes) { sendHeartbeat }
 
     case r: BT.Reply =>
       keepAlive = true
       handleReply(r)
+
+    // Let's download a piece
+    case PeerM.DownloadPiece(idx, size) =>
+      currentPieceDownload = PieceDownload(idx, size, 0)
+      requestNextBlock
   }
 
   /*
@@ -140,20 +158,37 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
 
   def handleReply(reply: BT.Reply): Unit = {
     reply match {
-      case BT.KeepAliveR                  => keepAlive = true
-      case BT.ChokeR                      => peerChoking = true
-      case BT.UnchokeR                    => peerChoking = false
-      case BT.InterestedR                 => peerInterested = true
-      case BT.NotInterestedR              => peerInterested = false
+
+      case BT.KeepAliveR =>
+        keepAlive = true
+
+      case BT.ChokeR =>
+        peerChoking = true
+
+      // Upon being unchoked, peer should send ready message to parent to decide
+      // what piece to downoad
+      case BT.UnchokeR =>
+        peerChoking = false
+        parent ! PeerM.Ready(peerHas)
+
+      case BT.InterestedR =>
+        peerInterested = true
+
+      case BT.NotInterestedR =>
+        peerInterested = false
 
       case BT.RequestR(idx, off, len) =>
         if (iHave contains idx && !peerChoking) {
           fileManager ! FM.Read(idx, off, len)
+        } else {
+          context stop self
         }
 
+      // A part of piece came in due to a request
       case BT.PieceR(idx, off, block) =>
         peerId map { pid => parent ! PeerM.Downloaded(pid, block.length) }
         fileManager ! FM.Write(idx, off, block)
+        requestNextBlock
 
       case BT.HaveR(idx) =>
         peerHas += idx
@@ -162,6 +197,42 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
       case BT.CancelR(idx, off, len) =>
       case _ =>
     }
+  }
+
+  // Inspect currentPieceDownload and do appropriate actions depending on state
+  // Pipeline requests if necessary
+  def requestNextBlock: Unit = {
+    val numNewRequests = MaxRequestPipeline - pipelinedRequests.length
+    val currentOffset = currentPieceDownload.offset
+    val idx = currentPieceDownload.index
+    val size = currentPieceDownload.size
+
+    (0 until numNewRequests) foreach { i =>
+      self ! BT.Request(idx, )
+    }
+
+    @tailrec
+    def pipelineRequest(
+        count: Int,
+        requests: Set[Int] = Set[Int]()): Set[Int] = {
+      if (count == numNewRequests) {
+        requests
+      } else {
+        val offset = currentOffset +
+          ((count * Constant.BlockSize) min
+        self ! BT.RequestR(idx, currentOffset)
+      }
+    }
+
+
+    val offset = currentPieceDownload.offset
+    val size = currentPieceDownload.size
+    val index = currentPieceDownload.index
+    if (offset < size) {
+      self ! BT.Request(index, offset, Constant.BlockSize min (size - offset))
+    }
+
+    currentPieceDownload.offset += Constant.BlockSize
   }
 
   // Start off the scheduler to send keep-alive signals every 2 minutes and to
@@ -178,13 +249,13 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
       }
     }
 
-    def sendHeartbeat: Unit = {
-      protocol ! BT.KeepAlive
-      keepAliveTask = Some(scheduleOnce(1.5 minutes) { sendHeartbeat })
-    }
-
     checkHeartbeat
     sendHeartbeat
+  }
+
+  def sendHeartbeat: Unit = {
+    protocol ! BT.KeepAlive
+    keepAliveTask = scheduleOnce(1.5 minutes) { sendHeartbeat }
   }
 
 
