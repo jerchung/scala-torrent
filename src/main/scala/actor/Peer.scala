@@ -2,6 +2,7 @@ package org.jerchung.torrent.actor
 
 import akka.actor.{ Actor, ActorRef, Props, Cancellable }
 import akka.actor.Stash
+import akka.actor.PoisonPill
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
 import akka.util.Timeout
@@ -40,13 +41,17 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
 
   import context.dispatcher
   import Peer.PieceDownload
-  import PieceRequestor.NextBlock
+  import PieceRequestor.Message.{ Resume, BlockDoneAndRequestNext }
 
   val MaxRequestPipeline = 5
   val protocol = context.actorOf(protocolProps)
 
   // Reference for a pieceRequestor
   var requestor: Option[ActorRef] = None
+
+  // index of piece currently being downloaded.  If -1 then no piece is being
+  // downloaded
+  var currentPieceIndex = -1
 
   var peerId: Option[ByteString] = info.peerId
   val ip: String                 = info.ip
@@ -64,12 +69,6 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   // Keep reference to KeepAlive sending task
   var keepAliveTask: Option[Cancellable] = None
 
-  // A peer can only download one piece at a time
-  // Keep track of the information in the currently downloading piece
-  var currentPieceDownload = PieceDownload()
-  var pipelinedRequests = Set[Int]()
-
-
   // Depending on if peerId is None or Some, then that dictates whether this
   // actor initiates a handshake with a peer, or waits for the peer to send a
   // handshake over
@@ -86,6 +85,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   override def postStop(): Unit = {
     peerId map { id => parent ! PeerM.Disconnected(id, peerHas) }
   }
+
 
   def waitingForHandshake: Receive = {
     case BT.HandshakeR(infoHash, peerId) if (infoHash == this.infoHash) =>
@@ -117,18 +117,65 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
    * Can also accept messages from client, but then stays in acceptBitfield
    * state
    */
-  def acceptBitfield: Receive = {
+  def acceptBitfield: Receive = receiveMessages orElse {
     case BT.BitfieldR(bitfield) =>
       peerHas |= bitfield
       parent ! TorrentM.Available(Right(peerHas))
       context.become(receive)
 
-    case msg =>
-      receive(msg)
-      msg match {
-        case BT.Reply => context.become(receive)
-        case _ => // Do nothing
-      }
+    case msg: BT.Reply =>
+      receiveReply(msg)
+      context.become(receive)
+  }
+
+  // Default receive behavior for messages meant to be forwarded to peer
+  def receiveMessage: Receive = {
+    case m: BT.Message =>
+      // Don't need to send KeepAlive message if already sending another message
+      keepAliveTask map { _.cancel }
+      handleMessage(m)
+      keepAliveTask = Some(scheduler.scheduleOnce(1.5 minutes) { sendHeartbeat })
+  }
+
+  // Default receive behavior for messages from protocol
+  def receiveReply: Receive = {
+    case r: BT.Reply =>
+      keepAlive = true
+      handleReply(r)
+  }
+
+  // Default receive behavior for messages sent from other actors to peer
+  def receiveOther: Receive = {
+
+    // Let's download a piece
+    // Create a new PieceRequestor actor which will fire off requests upon
+    // construction
+    case PeerM.DownloadPiece(idx, size) =>
+      currentPieceIndex = idx
+      requestor = Some(context.actorOf(
+        PieceRequestor.props(protocol, idx, size)))
+
+    // Peer was being choked, and another peer took up the piece this peer was
+    // downloading before it was choked
+    case PeerM.ClearPiece =>
+      endCurrentPieceDownload()
+
+    // End the peer if the piece is completed with an invalid hash
+    case msg: TorrentM.PieceInvalid =>
+      parent ! msg
+      context stop self
+
+    /* If current piece is completed successfully, report to parent and kill
+     * current requestor using PoisonPill to avoid memory leak.  Also send the
+     * parent a ready message to find out which next piece to download
+     */
+    case msg: TorrentM.PieceDone =>
+      parent ! msg
+      endCurrentPieceDownload()
+      parent ! PeerM.Ready(peerHas)
+
+    case _ => // Do Nothing
+
   }
 
   /*
@@ -139,31 +186,17 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   def choked: Receive = {
     case BT.UnchokeR =>
       unstashAll()
-      parent ! PeerM.Ready(peerHas)
+      requestor match {
+        case Some(req) => req ! Resume
+        case None => parent ! PeerM.Ready(peerHas)
+      }
       context.become(receive)
     case m: BT.Message =>
       stash()
   }
 
-  def receive = {
-
-    case m: BT.Message =>
-      // Don't need to send KeepAlive message if already sending another message
-      keepAliveTask map { _.cancel }
-      handleMessage(m)
-      keepAliveTask = Some(scheduler.scheduleOnce(1.5 minutes) { sendHeartbeat })
-
-    case r: BT.Reply =>
-      keepAlive = true
-      handleReply(r)
-
-    // Let's download a piece
-    // Create a new PieceRequestor actor which will fire off requests upon
-    // construction
-    case PeerM.DownloadPiece(idx, size) =>
-      requestor = Some(context.actorOf(
-        PieceRequestor.props(protocol, idx, size)))
-  }
+  // Link up all the default receive behaviors
+  def receive = receiveMessage orElse receiveReply orElse receiveOther
 
   /*
   * Update state according to message and then send message along to protocol
@@ -188,8 +221,14 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
       case BT.KeepAliveR =>
         keepAlive = true
 
+      // Upon peer being choked, report which piece, if any, is being downloaded
+      // to keep possibility of resuming piece download upon possible unchoking
+      // possible
       case BT.ChokeR =>
         peerChoking = true
+        if (currentPieceIndex >= 0) {
+          parent ! PeerM.ChokedOnPiece(currentPieceIndex)
+        }
         context.become(choked)
 
       // Upon being unchoked, peer should send ready message to parent to decide
@@ -215,7 +254,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
       case BT.PieceR(idx, off, block) =>
         peerId map { pid => parent ! PeerM.Downloaded(pid, block.length) }
         fileManager ! FM.Write(idx, off, block)
-        requestor map { _ ! NextBlock }
+        requestor map { _ ! BlockDoneAndRequestNext(off) }
 
       case BT.HaveR(idx) =>
         peerHas += idx
@@ -226,40 +265,11 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
     }
   }
 
-  // Inspect currentPieceDownload and do appropriate actions depending on state
-  // Pipeline requests if necessary
-  def requestNextBlock: Unit = {
-    val numNewRequests = MaxRequestPipeline - pipelinedRequests.length
-    val currentOffset = currentPieceDownload.offset
-    val idx = currentPieceDownload.index
-    val size = currentPieceDownload.size
-
-    (0 until numNewRequests) foreach { i =>
-      self ! BT.Request(idx, )
-    }
-
-    @tailrec
-    def pipelineRequest(
-        count: Int,
-        requests: Set[Int] = Set[Int]()): Set[Int] = {
-      if (count == numNewRequests) {
-        requests
-      } else {
-        val offset = currentOffset +
-          (count * (Constant.BlockSize min (size - offset)))
-        self ! BT.Request(idx, currentOffset)
-      }
-    }
-
-
-    val offset = currentPieceDownload.offset
-    val size = currentPieceDownload.size
-    val index = currentPieceDownload.index
-    if (offset < size) {
-      self ! BT.Request(index, offset, Constant.BlockSize min (size - offset))
-    }
-
-    currentPieceDownload.offset += Constant.BlockSize
+  // Reset piece index to -1 and end requestor actor
+  def endCurrentPieceDownload: Unit = {
+    currentPieceIndex = -1
+    requestor map { _ ! PoisonPill }
+    requestor = None
   }
 
   // Start off the scheduler to send keep-alive signals every 2 minutes and to

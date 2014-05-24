@@ -76,6 +76,10 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
       peersManager ! msg
       piecesTracker ! msg
 
+    case msg @ TorrentM.PieceInvalid(i) =>
+      requestedPieces -= i
+      piecesTracker ! msg
+
     case msg @ TorrentM.PieceDone(i) =>
       completedPieces += i
       requestedPieces -= i
@@ -90,14 +94,18 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
 
     case PeerM.Ready(peerHas) =>
       val possibles = peerHas &~ (completedPieces | requestedPieces)
-      if (possibles.isEmpty) {
-        sender ! BT.NotInterested
-      } else {
-        piecesTracker ! ChoosePieceAndReport(possibles, sender)
-      }
+      piecesTracker ! ChoosePieceAndReport(possibles, sender)
 
     case msg: PeerM.Downloaded =>
       peersManager ! msg
+
+    // Remove piece index from requestedPieces to allow for possibility of being
+    // chosen, but also report to pieceTracker to allow for resumption if peer
+    // resumes without piece being chosen by another peer
+    case msg @ PeerM.ChokedOnPiece(idx) =>
+      requestedPieces -= idx
+      piecesTracker forward msg
+
   }
 
   def startTorrent(fileName: String): Unit = {

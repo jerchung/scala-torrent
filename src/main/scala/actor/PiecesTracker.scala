@@ -26,10 +26,14 @@ object PiecesTracker {
 }
 
 /*
- * PiecesTracker keeps track of the frequence of each piece to be downloaded as
- * well as the state of each piece (downloaded, in progress, not downloaded).
+ * PiecesTracker keeps track of the frequence of each piece.
  * This actor also is in charge of choosing the next piece for a peer to
- * download
+ * download.
+ * This actor also keeps track of currently choked peers.  If a peer was choked
+ * in the middle of a download and the piece is left unfinished, if that peer
+ * is unchoked before that piece is chosen for download by another peer, then it
+ * can resume download of the piece.  Otherwise, the piece download on that peer
+ * will be resetted.
  */
 class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
     extends Actor { this: Parent =>
@@ -39,6 +43,9 @@ class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
 
   // Map of piece index -> pieceInfo to provide access to pieces
   val piecesMap = mutable.Map[Int, PieceInfo].empty
+
+  // Map of pieces that currently choked peers were downloading
+  val chokedPieces = mutable.Map[Int, ActorRef].empty
 
   val RarePieceJitter = 20
 
@@ -56,7 +63,13 @@ class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
     // back to TorrentClient which piece was chosen
     case ChoosePieceAndReport(possibles, peer) =>
       val idx = rarest(possibles, RarePieceJitter)
+
       if (idx >= 0) {
+
+        // Tell the choked peer to clear its currently downloading piece
+        if (chokedPieces contains idx) {
+          chokedPieces(idx) ! PeerM.ClearPiece
+        }
         peer ! PeerM.DownloadPiece(idx)
         parent ! TorrentM.PieceRequested(idx)
       } else {
@@ -64,7 +77,7 @@ class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
       }
 
     // Update frequency of pieces
-    case TorrentM.Update(update) =>
+    case TorrentM.Available(update) =>
       update match {
         case Right(bitfield) => bitfield foreach { i => update(i, 1) }
         case Left(i) => update(i, 1)
@@ -73,6 +86,12 @@ class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
     // Upon peer disconnect, update frequency of lost pieces
     case PeerM.Disconnected(peerId, peerHas) =>
       peerHas foreach { i => update(i, -1) }
+
+    // Save pieces index and actorRef for piece download resumption
+    // Message is forwarded from TorrentClient, so original peer ActorRef is
+    // retained
+    case PeerM.ChokedOnPiece(idx) =>
+      chokedPieces(idx) = sender
 
   }
 

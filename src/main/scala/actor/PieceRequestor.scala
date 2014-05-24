@@ -10,8 +10,11 @@ object PieceRequestor {
     Props(new PieceDownloader(protocol) with ProdParent)
   }
 
-  sealed trait Request
-  case object NextBlock extends Request
+  object Message {
+    case object Resume
+    case class BlockDoneAndRequestNext(offset: Int)
+  }
+
 }
 
 /*
@@ -22,6 +25,7 @@ class PieceRequestor(protocol: ActorRef, idx: Int, size: Int)
 
   val MaxRequestPipeline = 5
   var offset = 0
+  var pipeline = Set[Int].empty
 
   // Want to fill up pipeline with requests
   override def preStart(): Unit = {
@@ -32,8 +36,16 @@ class PieceRequestor(protocol: ActorRef, idx: Int, size: Int)
 
     // Either requests the next block or does nothing depending on where the
     // offset is incremented to
-    case NextBlock =>
+    case BlockDoneAndRequestNext(off) =>
+      pipeline -= off
       pipelineRequests(1)
+
+    // Re-request any straggling pieces
+    case Resume =>
+      pipeline foreach { off =>
+        val requestSize = Constant.BlockSize min (size - off)
+        protocol ! BT.Request(idx, off, requestSize)
+      }
   }
 
   // Request either up to max requests or until the end of the piece is reached
@@ -43,6 +55,7 @@ class PieceRequestor(protocol: ActorRef, idx: Int, size: Int)
     if (count < maxRequests && offset < size) {
       val requestSize = Constant.BlockSize min (size - offset)
       protocol ! BT.Request(idx, offset, requestSize)
+      pipeline += offset
       offset += requestSize
       pipelineRequests(maxRequests, count + 1)
     }

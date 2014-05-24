@@ -23,7 +23,9 @@ class Encoder {
   // Map keys must be in alphabetical order
   def encodeMap(value: Map[String, Any]): String =
     "d" + value.toList.sortWith((a, b) => a._1 < b._1)
-      .foldLeft("") { case (enc, (k, v)) => enc + s"${k.length}:$k${encode(v)}" } + "e"
+      .foldLeft("") { case (enc, (k, v)) =>
+        enc + s"${k.length}:${k}${encode(v)}"
+      } + "e"
 
   def encodeList(value: List[Any]): String =
     "l" + value.foldLeft("") { (enc, v) => enc + encode(v) } + "e"
