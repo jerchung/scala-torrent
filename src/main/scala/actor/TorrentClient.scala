@@ -86,7 +86,7 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
 
     case msg: PeerM.Connected =>
       peersManager forward msg
-      sender ! BT.Bitfield(bitfield, torrent.numPieces)
+      sender ! BT.Bitfield(completedPieces, torrent.numPieces)
 
     case PeerM.Ready(peerHas) =>
       val possibles = peerHas &~ (completedPieces | requestedPieces)

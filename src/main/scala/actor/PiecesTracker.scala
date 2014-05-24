@@ -56,7 +56,7 @@ class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
     // back to TorrentClient which piece was chosen
     case ChoosePieceAndReport(possibles, peer) =>
       val idx = rarest(possibles)
-      if (idx > 0) {
+      if (idx >= 0) {
         peer ! PeerM.DownloadPiece(idx)
         parent ! TorrentM.PieceRequested(idx)
       } else {
