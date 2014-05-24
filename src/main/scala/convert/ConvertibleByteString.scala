@@ -15,12 +15,12 @@ class ConvertibleByteString(bytes: ByteString) {
 
     @tailrec
     def toIntHelper(bytes: ByteString, value: Int = 0, idx: Int = 0): Int = {
-      bytes.headOption match {
-        case Some(byte) =>
-          val bytesVal = (byte & 0xFF) << ((size - 1 - idx) * Constant.ByteSize)
-          toIntHelper(bytes.drop(1), value + bytesVal, idx + 1)
-        case None =>
-          value
+      if (bytes.isEmpty) {
+        value
+      } else {
+        val byte = bytes.head
+        val bytesVal = (byte & 0xFF) << ((size - 1 - idx) * Constant.ByteSize)
+        toIntHelper(bytes.tail, value + bytesVal, idx + 1)
       }
     }
 

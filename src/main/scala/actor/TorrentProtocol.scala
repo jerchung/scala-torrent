@@ -138,7 +138,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor { this: Parent =>
         }
       }
 
-      msg foreach { m => parent ! m }
+      msg map { m => parent ! m }
       handleReply(data.drop(length))
     }
   }

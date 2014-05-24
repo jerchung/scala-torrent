@@ -19,6 +19,7 @@ object TorrentM {
   case class Unavailable(remove: Either[Int, BitSet])
   case class PieceDone(idx: Int)
   case class PieceInvalid(idx: Int)
+  case class PieceRequested(idx: int)
   case class Register(peerId: ByteString)
   case class DisconnectedPeer(peerId: ByteString, peerHas: BitSet)
 }
@@ -27,6 +28,7 @@ object PeerM {
   case class Downloaded(id: ByteString, length: Int)
   case class Connected(peerId: ByteString)
   case class Ready(peerHas: BitSet)
+  case class Disconnected(id: ByteString, peerHas: BitSet)
 }
 
 // FileManager

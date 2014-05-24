@@ -71,7 +71,7 @@ class FileManager(torrent: Torrent) extends Actor {
 
     case Write(idx, off, block) =>
       pieces(idx) match {
-        case p: UnfinishedPiece => insertBlock(p, off, block)
+        case p: UnfinishedPiece => insertBlockAndReport(p, off, block)
         case _ =>
       }
   }
@@ -80,7 +80,10 @@ class FileManager(torrent: Torrent) extends Actor {
   // This call may have the effect of having disk IO if the piece having
   // the block inserted in ends up being completed. Also takes care of the
   // caching / invalid / finished piece logic
-  def insertBlock(piece: UnfinishedPiece, offset: Int, block: ByteString): Unit = {
+  def insertBlockAndReport(
+      piece: UnfinishedPiece,
+      offset: Int,
+      block: ByteString): Unit = {
     piece.insert(offset, block) match {
       case p @ InMemPiece(idx, off, size, hash, data) =>
         context.parent ! TorrentM.PieceDone(idx)
