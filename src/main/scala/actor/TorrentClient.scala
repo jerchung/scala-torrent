@@ -38,16 +38,22 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
   val torrent = Torrent.fromFile(fileName)
 
   // Spawn needed actor(s)
-  val trackerClient = context.actorOf(TrackerClient.props)
-  val server        = context.actorOf(PeerServer.props)
-  val fileManager   = context.actorOf(FileManager.props(torrent))
-  val peersManager  = context.actorOf(PeersManager.props)
-  val piecesTracker = context.actorOf(
-                        PiecesTracker.props(
-                          torrent.numPieces,
-                          torrent.pieceSize,
-                          torrent.totalSize
-                      ))
+  val trackerClient    = context.actorOf(TrackerClient.props)
+  val server           = context.actorOf(PeerServer.props)
+  val fileManager      = context.actorOf(FileManager.props(torrent))
+  val peersManager     = context.actorOf(PeersManager.props)
+  val piecesTracker    = context.actorOf(
+                           PiecesTracker.props(
+                             torrent.numPieces,
+                             torrent.pieceSize,
+                             torrent.totalSize
+                         ))
+  val peerCommunicator = context.actorOf(
+                           PeerCommunicator.props(
+                             fileManager,
+                             peersManager,
+                             piecesTracker
+                         ))
 
   // This bitset holds which pieces are done
   var completedPieces = BitSet.empty

@@ -14,12 +14,6 @@ object TrackerM {
 object TorrentM {
   case class Start(filename: String)
   case class CreatePeer(connection: ActorRef, remote: InetSocketAddress, peerId: Option[ByteString] = None)
-  case class Available(update: Either[Int, BitSet])
-  case class Unavailable(remove: Either[Int, BitSet])
-  case class PieceDone(idx: Int)
-  case class PieceInvalid(idx: Int)
-  case class PieceRequested(idx: Int)
-  case class DisconnectedPeer(peerId: ByteString, peerHas: BitSet)
   case class TrackerR(response: String)
 }
 
@@ -31,6 +25,9 @@ object PeerM {
   case class ChokedOnPiece(index: Int)
   case class DownloadPiece(index: Int, size: Int)
   case class Resume(index: Int)
+  case class PieceAvailable(update: Either[Int, BitSet])
+  case class PieceDone(idx: Int)
+  case class PieceInvalid(idx: Int)
   case object ClearPiece
 }
 

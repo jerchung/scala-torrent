@@ -117,7 +117,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   def acceptBitfield: Receive = receiveMessage orElse {
     case BT.BitfieldR(bitfield) =>
       peerHas |= bitfield
-      parent ! TorrentM.Available(Right(peerHas))
+      parent ! PeerM.PieceAvailable(Right(peerHas))
       context.become(receive)
 
     case msg: BT.Reply =>
@@ -256,7 +256,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
 
       case BT.HaveR(idx) =>
         peerHas += idx
-        parent ! TorrentM.Available(Left(idx))
+        parent ! PeerM.PieceAvailable(Left(idx))
 
       case BT.CancelR(idx, off, len) =>
       case _ =>
