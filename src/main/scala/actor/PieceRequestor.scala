@@ -1,13 +1,13 @@
 package org.jerchung.torrent.actor
 
 import akka.actor.{ Actor, ActorRef, Props, Cancellable }
-import org.jerchung.torrent.message.BT
+import org.jerchung.torrent.actor.message.BT
 import org.jerchung.torrent.Constant
 import scala.annotation.tailrec
 
 object PieceRequestor {
   def props(protocol: ActorRef, idx: Int, size: Int): Props = {
-    Props(new PieceDownloader(protocol) with ProdParent)
+    Props(new PieceRequestor(protocol, idx, size) with ProdParent)
   }
 
   object Message {
@@ -21,11 +21,13 @@ object PieceRequestor {
  * This actor requests blocks from the peer until the piece is completed
  */
 class PieceRequestor(protocol: ActorRef, idx: Int, size: Int)
-  extends Actor { this: Parent =>
+    extends Actor { this: Parent =>
+
+  import PieceRequestor.Message._
 
   val MaxRequestPipeline = 5
   var offset = 0
-  var pipeline = Set[Int].empty
+  var pipeline = Set[Int]()
 
   // Want to fill up pipeline with requests
   override def preStart(): Unit = {
@@ -51,7 +53,7 @@ class PieceRequestor(protocol: ActorRef, idx: Int, size: Int)
   // Request either up to max requests or until the end of the piece is reached
   // Increment offset as you go and add requested offset to pipeline set
   @tailrec
-  def pipelineRequests(maxRequests: Int, count: Int = 0): Unit = {
+  private def pipelineRequests(maxRequests: Int, count: Int = 0): Unit = {
     if (count < maxRequests && offset < size) {
       val requestSize = Constant.BlockSize min (size - offset)
       protocol ! BT.Request(idx, offset, requestSize)

@@ -1,6 +1,6 @@
 package org.jerchung.torrent.actor
 
-import org.jerchung.torrent.actor.message.{ PM, BT }
+import org.jerchung.torrent.actor.message.{ PeerM, BT }
 import akka.actor.{ Actor, ActorRef, Props, PoisonPill }
 import akka.io.Tcp
 import akka.util.ByteString

@@ -3,8 +3,10 @@ package org.jerchung.torrent.actor
 import akka.actor.{Actor, ActorRef, Props}
 import akka.util.ByteString
 import org.jerchung.torrent.actor.message.{ TorrentM, TrackerM, BT, PeerM }
+import scala.annotation.tailrec
 import scala.collection.BitSet
 import scala.collection.mutable
+import scala.util.Random
 
 object PiecesTracker {
 
@@ -38,14 +40,17 @@ object PiecesTracker {
 class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
     extends Actor { this: Parent =>
 
+  import PiecesTracker.Message.ChoosePieceAndReport
+  import PiecesTracker.PieceInfo
+
   // Set of pieces ordered by frequency starting from rarest
-  val piecesSet = mutable.SortedSet[PieceInfo].empty
+  val piecesSet = mutable.SortedSet[PieceInfo]()
 
   // Map of piece index -> pieceInfo to provide access to pieces
-  val piecesMap = mutable.Map[Int, PieceInfo].empty
+  val piecesMap = mutable.Map[Int, PieceInfo]()
 
   // Map of pieces that currently choked peers were downloading
-  val chokedPieces = mutable.Map[Int, ActorRef].empty
+  val chokedPieces = mutable.Map[Int, ActorRef]()
 
   val RarePieceJitter = 20
 
@@ -63,6 +68,11 @@ class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
     // back to TorrentClient which piece was chosen
     case ChoosePieceAndReport(possibles, peer) =>
       val idx = rarest(possibles, RarePieceJitter)
+      val size =
+        if (idx == numPieces - 1)
+          totalSize - (pieceSize * (numPieces - 1))
+        else
+          pieceSize
 
       if (idx >= 0) {
 
@@ -70,15 +80,15 @@ class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
         if (chokedPieces contains idx) {
           chokedPieces(idx) ! PeerM.ClearPiece
         }
-        peer ! PeerM.DownloadPiece(idx)
+        peer ! PeerM.DownloadPiece(idx, size)
         parent ! TorrentM.PieceRequested(idx)
       } else {
         peer ! BT.NotInterested
       }
 
     // Update frequency of pieces
-    case TorrentM.Available(update) =>
-      update match {
+    case TorrentM.Available(available) =>
+      available match {
         case Right(bitfield) => bitfield foreach { i => update(i, 1) }
         case Left(i) => update(i, 1)
       }
@@ -134,13 +144,13 @@ class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
     }
 
     populateRarePieces(piecesSet.toList)
-    val availablePieces = availablePiecesBuffer.toArray
-    if (availablePieces.isEmpty) {
+    val chosenPieces = availablePiecesBuffer.toArray
+    if (chosenPieces.isEmpty) {
       -1
     } else {
       val index = chosenPieces(
         (new Random).nextInt(
-          k min availablePieces.size))
+          k min chosenPieces.size))
       chosenPieces(index)
     }
   }

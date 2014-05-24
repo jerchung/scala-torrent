@@ -117,7 +117,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
    * Can also accept messages from client, but then stays in acceptBitfield
    * state
    */
-  def acceptBitfield: Receive = receiveMessages orElse {
+  def acceptBitfield: Receive = receiveMessage orElse {
     case BT.BitfieldR(bitfield) =>
       peerHas |= bitfield
       parent ! TorrentM.Available(Right(peerHas))
@@ -244,7 +244,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
         peerInterested = false
 
       case BT.RequestR(idx, off, len) =>
-        if (iHave contains idx && !peerChoking) {
+        if (iHave.contains(idx) && !peerChoking) {
           fileManager ! FM.Read(idx, off, len)
         } else {
           context stop self
@@ -266,7 +266,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   }
 
   // Reset piece index to -1 and end requestor actor
-  def endCurrentPieceDownload: Unit = {
+  def endCurrentPieceDownload(): Unit = {
     currentPieceIndex = -1
     requestor map { _ ! PoisonPill }
     requestor = None
@@ -274,9 +274,9 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
 
   // Start off the scheduler to send keep-alive signals every 2 minutes and to
   // check that keep-alive is being sent to itself from the peer
-  def heartbeat: Unit = {
+  def heartbeat(): Unit = {
 
-    def checkHeartbeat: Unit = {
+    def checkHeartbeat(): Unit = {
       if (keepAlive) {
         keepAlive = false
         scheduler.scheduleOnce(3 minutes) { checkHeartbeat }
@@ -290,9 +290,9 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
     sendHeartbeat()
   }
 
-  def sendHeartbeat: Unit = {
+  def sendHeartbeat(): Unit = {
     protocol ! BT.KeepAlive
-    keepAliveTask = Some(scheduleOnce(1.5 minutes) { sendHeartbeat })
+    keepAliveTask = Some(scheduler.scheduleOnce(1.5 minutes) { sendHeartbeat })
   }
 
 

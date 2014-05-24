@@ -4,6 +4,8 @@ scalaVersion in ThisBuild :="2.10.2"
 
 version :="1.0"
 
+scalacOptions ++= Seq("-unchecked", "-deprecation","-feature")
+
 resolvers ++= Seq(
   "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
   "Typesafe Repository" at "http://repo.typesafe.com/typesafe/releases/",

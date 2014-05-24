@@ -6,6 +6,9 @@ import org.jerchung.torrent.Constant
 import org.jerchung.torrent.actor.message.{ TorrentM, TrackerM, BT, PeerM }
 import scala.annotation.tailrec
 import scala.collection.mutable
+import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.duration._
+import scala.language.postfixOps
 
 object PeersManager {
 
@@ -35,8 +38,9 @@ object PeersManager {
  * intervals.  Keeps track of download rate of peers. Peers get connected /
  * disconnected based on messages from TorrentClient
  */
-class PeersManager { this: Parent with ScheduleProvider =>
+class PeersManager extends Actor { this: Parent with ScheduleProvider =>
 
+  import context.dispatcher
   import PeersManager.PeerConnection
   import PeersManager.{ Unchoke, OptimisticUnchoke }
 
@@ -84,7 +88,7 @@ class PeersManager { this: Parent with ScheduleProvider =>
   }
 
   def broadcast(message: Any): Unit = {
-    peers foreach { peerConn =>
+    peers foreach { case (pid, peerConn) =>
       peerConn.peer ! message
     }
   }
@@ -92,28 +96,27 @@ class PeersManager { this: Parent with ScheduleProvider =>
   // Find top k peers based on upload speed
   def kMaxPeers(k: Int): Set[ByteString] = {
     val maxK = new mutable.PriorityQueue[PeerConnection]()
-      var minPeerRate = 0.0;
-      peers foreach { case (id, peer) =>
-        if (maxK.size == k) {
-          if (peer.rate > minPeerRate) {
-            maxK.dequeue
-            maxK.enqueue(peer)
-            minPeerRate = maxK.max.rate
-          }
-        } else {
+    var minPeerRate = 0.0;
+    peers foreach { case (id, peer) =>
+      if (maxK.size == k) {
+        if (peer.rate > minPeerRate) {
+          maxK.dequeue
           maxK.enqueue(peer)
-
-          // Max actually returns the peerConnection with min rate due to the
-          // inversion of priorities in the PeerConnection class
-          minPeerRate = maxK.max.rate
+          minPeerRate = maxK.head.rate
         }
+      } else {
+        maxK.enqueue(peer)
 
-        // Reset rate for next choosing
-        peer.rate = 0.0
+        // Max actually returns the peerConnection with min rate due to the
+        // inversion of priorities in the PeerConnection class
+        minPeerRate = maxK.head.rate
       }
-      maxK.foldLeft(Set[ByteString]()) { (peers, peerConn) =>
-        peerConn.id + peers
-      }
+
+      // Reset rate for next choosing
+      peer.rate = 0.0
+    }
+    maxK.foldLeft(Set[ByteString]()) { (peers, peerConn) =>
+      peers + peerConn.id
     }
   }
 

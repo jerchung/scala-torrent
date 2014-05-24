@@ -1,6 +1,7 @@
 package org.jerchung.torrent
 
 import scala.concurrent.duration._
+import scala.language.postfixOps
 
 object Constant {
   val ByteSize = 8
