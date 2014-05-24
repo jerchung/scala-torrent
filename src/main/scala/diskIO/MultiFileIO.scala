@@ -30,7 +30,7 @@ class MultiFileIO(pieceSize: Int, files: List[TorrentFile]) extends DiskIO {
           } else if (pos >= targetStop) {
             affected.reverse
           } else {
-            val offset = if (targetStart - pos > 0) pos else 0
+            val offset = if (targetStart > pos) pos else 0
             val readLength = math.min(f.size - offset, targetStop - pos)
             val fileOffset = FileOffset(f, offset, readLength)
             getAffectedFiles(more, end, fileOffset :: affected)

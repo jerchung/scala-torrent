@@ -29,8 +29,6 @@ object Peer {
     port: Int
   )
 
-  // Encapsulate info of the piece being currently downloaded by the peer
-  case class PieceDownload(index: Int = 0, size: Int = 0, var offset: Int = 0)
 }
 
 // One of these actors per peer
@@ -40,7 +38,6 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
     with Stash { this: Parent with ScheduleProvider =>
 
   import context.dispatcher
-  import Peer.PieceDownload
   import PieceRequestor.Message.{ Resume, BlockDoneAndRequestNext }
 
   val MaxRequestPipeline = 5
@@ -92,7 +89,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
       protocol ! BT.Handshake(infoHash, ownId)
       parent ! PeerM.Connected(peerId)
       this.peerId = Some(peerId)
-      heartbeat
+      heartbeat()
       context.become(acceptBitfield)
 
     case _ => context stop self
@@ -102,7 +99,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
     case BT.HandshakeR(infoHash, peerId)
         if (infoHash == this.infoHash && peerId == this.peerId.get) =>
       parent ! PeerM.Connected(peerId)
-      heartbeat
+      heartbeat()
       context.become(acceptBitfield)
 
     /*
@@ -187,8 +184,10 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
     case BT.UnchokeR =>
       unstashAll()
       requestor match {
-        case Some(req) => req ! Resume
         case None => parent ! PeerM.Ready(peerHas)
+        case Some(req) =>
+          req ! Resume
+          parent ! PeerM.Resume(currentPieceIndex)
       }
       context.become(receive)
     case m: BT.Message =>
@@ -223,7 +222,6 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
 
       // Upon peer being choked, report which piece, if any, is being downloaded
       // to keep possibility of resuming piece download upon possible unchoking
-      // possible
       case BT.ChokeR =>
         peerChoking = true
         if (currentPieceIndex >= 0) {

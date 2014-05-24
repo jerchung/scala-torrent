@@ -2,7 +2,7 @@ package org.jerchung.torrent.actor
 
 import dispatch._, Defaults._
 import org.jerchung.torrent.bencode.Bencode
-import org.jerchung.torrent.actor.message.{ TrackerM }
+import org.jerchung.torrent.actor.message.{ TrackerM, TorrentM }
 import akka.actor.{Actor, Props}
 import scala.util.{ Success, Failure }
 
@@ -40,7 +40,7 @@ class TrackerClient(val announceUrl: String) extends Actor {
     val resp = Http(req OK as.String)
 
     resp onComplete {
-      case Success(s) => requestor ! TrackerM.Response(s)
+      case Success(s) => requestor ! TorrentM.TrackerR(s)
       case Failure(e) => self ! new Exception("Tracker http request failed")
     }
   }

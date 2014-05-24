@@ -8,7 +8,6 @@ import java.net.InetSocketAddress
 // Tracker Client
 object TrackerM {
   case class Request(announce: String, request: Map[String, Any])
-  case class Response(response: String)
 }
 
 // Torrent Client (TorrentM (TorrentMessage))
@@ -21,6 +20,7 @@ object TorrentM {
   case class PieceInvalid(idx: Int)
   case class PieceRequested(idx: Int)
   case class DisconnectedPeer(peerId: ByteString, peerHas: BitSet)
+  case class TrackerR(response: String)
 }
 
 object PeerM {
@@ -30,6 +30,7 @@ object PeerM {
   case class Disconnected(id: ByteString, peerHas: BitSet)
   case class ChokedOnPiece(index: Int)
   case class DownloadPiece(index: Int, size: Int)
+  case class Resume(index: Int)
   case object ClearPiece
 }
 

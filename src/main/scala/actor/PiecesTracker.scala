@@ -77,6 +77,7 @@ class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
       if (idx >= 0) {
 
         // Tell the choked peer to clear its currently downloading piece
+        // if chosen piece coincides
         if (chokedPieces contains idx) {
           chokedPieces(idx) ! PeerM.ClearPiece
         }
@@ -102,6 +103,9 @@ class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
     // retained
     case PeerM.ChokedOnPiece(idx) =>
       chokedPieces(idx) = sender
+
+    case PeerM.Resume(idx) =>
+      chokedPieces -= idx
 
   }
 

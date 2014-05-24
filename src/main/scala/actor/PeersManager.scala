@@ -49,14 +49,14 @@ class PeersManager extends Actor { this: Parent with ScheduleProvider =>
   val numUnchokedPeers = 4
 
   // All currently connected Peers
-  var peers = Map.empty[ByteString, PeerConnection]
+  var peers = Map[ByteString, PeerConnection]()
 
   // Set of peerIds of currrent unchoked peers
-  var currentUnchokedPeers = Set.empty[ByteString]
+  var currentUnchokedPeers = Set[ByteString]()
 
   override def preStart(): Unit = {
-    scheduleUnchoke
-    scheduleOptimisticUnchoke
+    scheduleUnchoke()
+    scheduleOptimisticUnchoke()
   }
 
   def receive = {
@@ -80,7 +80,7 @@ class PeersManager extends Actor { this: Parent with ScheduleProvider =>
       chosenPeers foreach { id => peers(id).peer ! BT.Unchoke }
       peersToChoke foreach { id => peers(id).peer ! BT.Choke }
       currentUnchokedPeers = chosenPeers
-      scheduleUnchoke
+      scheduleUnchoke()
 
     // TODO: Optimistic Unchoke
     case OptimisticUnchoke =>
@@ -107,7 +107,7 @@ class PeersManager extends Actor { this: Parent with ScheduleProvider =>
       } else {
         maxK.enqueue(peer)
 
-        // Max actually returns the peerConnection with min rate due to the
+        // head actually returns the peerConnection with min rate due to the
         // inversion of priorities in the PeerConnection class
         minPeerRate = maxK.head.rate
       }
@@ -120,13 +120,13 @@ class PeersManager extends Actor { this: Parent with ScheduleProvider =>
     }
   }
 
-  def scheduleUnchoke: Unit = {
+  def scheduleUnchoke(): Unit = {
     scheduler.scheduleOnce(unchokeFrequency) {
       self ! Unchoke
     }
   }
 
-  def scheduleOptimisticUnchoke: Unit = {
+  def scheduleOptimisticUnchoke(): Unit = {
     scheduler.scheduleOnce(optimisticUnchokeFrequency) {
       self ! OptimisticUnchoke
     }
