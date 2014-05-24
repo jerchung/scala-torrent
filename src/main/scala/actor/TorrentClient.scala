@@ -76,10 +76,10 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
       peersManager ! msg
       piecesTracker ! msg
 
-    case TorrentM.PieceDone(i) =>
+    case msg @ TorrentM.PieceDone(i) =>
       completedPieces += i
       requestedPieces -= i
-      connectedPeers.broadcast(BT.Have(i))
+      peersManager ! msg
 
     case TorrentM.PieceRequested(i) =>
       requestedPieces += i

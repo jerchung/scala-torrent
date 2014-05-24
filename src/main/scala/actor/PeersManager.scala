@@ -67,6 +67,9 @@ class PeersManager { this: Parent with ScheduleProvider =>
     case PeerM.Downloaded(pid, size) =>
       peers(pid).rate += size
 
+    case TorrentM.PieceDone(i) =>
+      broadcast(BT.Have(i))
+
     case Unchoke =>
       val chosenPeers = kMaxPeers(numUnchokedPeers)
       val peersToChoke = currentUnchokedPeers &~ chosenPeers
@@ -78,6 +81,12 @@ class PeersManager { this: Parent with ScheduleProvider =>
     // TODO: Optimistic Unchoke
     case OptimisticUnchoke =>
 
+  }
+
+  def broadcast(message: Any): Unit = {
+    peers foreach { peerConn =>
+      peerConn.peer ! message
+    }
   }
 
   // Find top k peers based on upload speed
