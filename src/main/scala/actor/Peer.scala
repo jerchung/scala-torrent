@@ -158,7 +158,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
       endCurrentPieceDownload()
 
     // End the peer if the piece is completed with an invalid hash
-    case msg: TorrentM.PieceInvalid =>
+    case msg: PeerM.PieceInvalid =>
       parent ! msg
       context stop self
 
@@ -166,7 +166,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
      * current requestor using PoisonPill to avoid memory leak.  Also send the
      * parent a ready message to find out which next piece to download
      */
-    case msg: TorrentM.PieceDone =>
+    case msg: PeerM.PieceDone =>
       parent ! msg
       endCurrentPieceDownload()
       parent ! PeerM.Ready(peerHas)

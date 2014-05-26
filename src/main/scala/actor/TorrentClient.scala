@@ -55,45 +55,9 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
                              piecesTracker
                          ))
 
-  // This bitset holds which pieces are done
-  var completedPieces = BitSet.empty
-
-  // This bitset holds which pieces are currently being requested
-  var requestedPieces = BitSet.empty
-
-  // PeerM message cases
-  def receivePeerMessage: Receive = {
-
-    case msg: PeerM.Disconnected =>
-      peersManager ! msg
-      piecesTracker ! msg
-
-    case msg @ PeerM.Resume(idx) =>
-      requestedPieces += idx
-      piecesTracker ! msg
-
-    case msg: PeerM.Connected =>
-      peersManager forward msg
-      sender ! BT.Bitfield(completedPieces, torrent.numPieces)
-
-    case PeerM.Ready(peerHas) =>
-      val possibles = peerHas &~ (completedPieces | requestedPieces)
-      piecesTracker ! ChoosePieceAndReport(possibles, sender)
-
-    case msg: PeerM.Downloaded =>
-      peersManager ! msg
-
-    // Remove piece index from requestedPieces to allow for possibility of being
-    // chosen, but also report to pieceTracker to allow for resumption if peer
-    // resumes without piece being chosen by another peer
-    case msg @ PeerM.ChokedOnPiece(idx) =>
-      requestedPieces -= idx
-      piecesTracker forward msg
-
-  }
-
   // TorrentM message cases
   def receiveTorrentMessage: Receive = {
+
     case TorrentM.Start(t) =>
       startTorrent(t)
 
@@ -107,24 +71,10 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
       val protocolProp = TorrentProtocol.props(connection)
       context.actorOf(Peer.props(info, protocolProp, fileManager))
 
-    case msg: TorrentM.Available =>
-      piecesTracker ! msg
-
-    case msg @ TorrentM.PieceInvalid(i) =>
-      requestedPieces -= i
-      piecesTracker ! msg
-
-    case msg @ TorrentM.PieceDone(i) =>
-      completedPieces += i
-      requestedPieces -= i
-      peersManager ! msg
-
-    case TorrentM.PieceRequested(i) =>
-      requestedPieces += i
   }
 
   // Link default receives
-  def receive = receivePeerMessage orElse receiveTorrentMessage
+  def receive = receiveTorrentMessage
 
   def startTorrent(fileName: String): Unit = {
     val request = Map[String, Any](

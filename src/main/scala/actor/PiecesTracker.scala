@@ -1,13 +1,15 @@
 package org.jerchung.torrent.actor
 
 import akka.actor.{Actor, ActorRef, Props}
+import akka.actor.PoisonPill
 import akka.util.ByteString
 import org.jerchung.torrent.actor.message.{ TorrentM, TrackerM, BT, PeerM }
 import scala.annotation.tailrec
 import scala.collection.BitSet
+import scala.collection.mutable
 import scala.collection.SortedSet
-import scala.concurrent.Future
-import ExecutionContext.Implicits.global
+import scala.concurrent._
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.Random
 
 object PiecesTracker {
@@ -27,8 +29,56 @@ object PiecesTracker {
     }
   }
 
-  object Message {
-    case class ChoosePieceAndReport(possibles: BitSet, peer: ActorRef)
+  case class ChosenPiece(index: Int, peer: ActorRef, possibles: BitSet)
+  case class ChoosePiece(possibles: BitSet, pieces: SortedSet[PieceInfo])
+
+  object PieceChooser {
+    def props(peer: ActorRef): Props = {
+      Props(new PieceChooser(peer) with ProdParent)
+    }
+  }
+
+  class PieceChooser(peer: ActorRef) extends Actor { this: Parent =>
+
+    val RarePieceJitter = 20
+
+    def receive = {
+      case ChoosePiece(possibles, pieces) =>
+        val idx = rarest(possibles, pieces.toList)
+        parent ! ChosenPiece(idx, peer, possibles)
+    }
+
+    /* Perform the jittering of choosing from k of the rarest pieces whose
+     * indexes are contained in possibles
+     * Return the index of the chosen piece
+     * Return -1 if no possibilities to choose
+     */
+    def rarest(possibles: BitSet, pieces: List[PieceInfo], k: Int): Int = {
+      val availablePiecesBuffer = mutable.ArrayBuffer[Int]()
+
+      @tailrec
+      def populateRarePieces(count: Int): Unit = {
+        if (count <= k && !pieces.isEmpty) {
+          val pieceInfo = pieces.head
+          if (possibles(pieceInfo.index)) {
+            availablePiecesBuffer += pieceInfo.index
+          }
+          populateRarePieces(pieces.tail, count + 1)
+        }
+      }
+
+      populateRarePieces(0)
+      val chosenPieces = availablePiecesBuffer.toArray
+      if (chosenPieces.isEmpty) {
+        -1
+      } else {
+        val index = chosenPieces(
+          (new Random).nextInt(
+            k min chosenPieces.size))
+        chosenPieces(index)
+      }
+    }
+
   }
 
 }
@@ -76,25 +126,28 @@ class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
 
   def receive = {
 
-    // Choose a piece for the peer to download from the possibles, then report
-    // back to TorrentClient which piece was chosen
-    case ChoosePieceAndReport(possibles, peer) =>
-      val idx = rarest(possibles, RarePieceJitter)
+    case ChosenPiece(idx, peer, possibles) =>
       val size =
         if (idx == numPieces - 1)
           totalSize - (pieceSize * (numPieces - 1))
         else
           pieceSize
 
+      // If somewhile this piece was already chosen while the piece chooser
+      // actor was working, we remove the idx from the possibles and tell it to
+      // rechoose
       if (idx >= 0) {
-        // Tell the choked peer to clear its currently downloading piece
-        // if chosen piece coincides
-        if (chokedPieces contains idx) {
-          chokedPieces(idx) ! PeerM.ClearPiece
+        if (!(completedPieces | requestedPieces).contains(idx)) {
+          chokedPieces.get(idx) map { _ ! PeerM.ClearPiece }
+          peer ! PeerM.DownloadPiece(idx, size)
+          requestedPieces += idx
+          sender ! PoisonPill
+        } else {
+          sender ! ChoosePiece(possibles - idx, pieces)
         }
-        peer ! PeerM.DownloadPiece(idx, size)
       } else {
         peer ! BT.NotInterested
+        sender ! PoisonPill
       }
 
     // Update frequency of pieces
@@ -121,32 +174,11 @@ class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
     case msg: PeerM.Connected =>
       sender ! BT.Bitfield(completedPieces, numPieces)
 
-    // Delegate choosing logic to a future
+    // Delegate choosing logic to a PieceChooser actor for async
     case PeerM.Ready(peerHas) =>
       val peer = sender
-      val pieces = piecesSet.toList
-      future {
-        val possibles = peerHas &~ (completedPieces | requestedPieces)
-        val idx = rarest(possibles, pieces, RarePieceJitter)
-        val size =
-          if (idx == numPieces - 1)
-            totalSize - (pieceSize * (numPieces - 1))
-          else
-            pieceSize
-
-        if (idx >= 0) {
-          // Tell the choked peer to clear its currently downloading piece
-          // if chosen piece coincides
-          if (chokedPieces contains idx) {
-            chokedPieces(idx) ! PeerM.ClearPiece
-            chokedPieces -= idx
-          }
-          peer ! PeerM.DownloadPiece(idx, size)
-          requestedPieces += idx
-        } else {
-          peer ! BT.NotInterested
-        }
-      }
+      val possibles = peerHas &~ (completedPieces | requestedPieces)
+      context.actorOf(PieceChooser.props())
 
   }
 
@@ -169,35 +201,5 @@ class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
     add(piece)
   }
 
-  /* Perform the jittering of choosing from k of the rarest pieces whose
-   * indexes are contained in possibles
-   * Return the index of the chosen piece
-   * Return -1 if no possibilities to choose
-   */
-  def rarest(possibles: BitSet, pieces: List[PieceInfo], k: Int): Int = {
-    val availablePiecesBuffer = mutable.ArrayBuffer[Int]()
-
-    @tailrec
-    def populateRarePieces(count: Int): Unit = {
-      if (count <= k && !pieces.isEmpty) {
-        val pieceInfo = pieces.head
-        if (possibles(pieceInfo.index)) {
-          availablePiecesBuffer += pieceInfo.index
-        }
-        populateRarePieces(pieces.tail, count + 1)
-      }
-    }
-
-    populateRarePieces(0)
-    val chosenPieces = availablePiecesBuffer.toArray
-    if (chosenPieces.isEmpty) {
-      -1
-    } else {
-      val index = chosenPieces(
-        (new Random).nextInt(
-          k min chosenPieces.size))
-      chosenPieces(index)
-    }
-  }
 
 }

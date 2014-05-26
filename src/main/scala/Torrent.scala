@@ -23,7 +23,9 @@ object Torrent {
     new Torrent(
       announce = torrent("announce").asInstanceOf[ByteString].toChars,
       info = torrent("info").asInstanceOf[Map[String, Any]],
-      creationDate = torrent.get("creation date").map { d => new Date(d.asInstanceOf[Int] * 1000.toLong) },
+      creationDate = torrent.get("creation date").map { d =>
+        new Date(d.asInstanceOf[Int] * 1000.toLong)
+      },
       comment = torrent.get("comment").map(_.asInstanceOf[ByteString].toChars),
       createdBy = torrent.get("created by").map(_.asInstanceOf[ByteString].toChars),
       encoding = torrent.get("encoding").map(_.asInstanceOf[ByteString].toChars)

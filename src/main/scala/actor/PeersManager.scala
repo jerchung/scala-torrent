@@ -3,9 +3,10 @@ package org.jerchung.torrent.actor
 import akka.actor.{ Actor, ActorRef, Props, Cancellable }
 import akka.util.ByteString
 import org.jerchung.torrent.Constant
-import org.jerchung.torrent.actor.message.{ TorrentM, TrackerM, BT, PeerM }
+import org.jerchung.torrent.actor.message.{ TrackerM, BT, PeerM }
 import scala.annotation.tailrec
 import scala.collection.mutable
+import scala.concurrent._
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.duration._
 import scala.language.postfixOps
@@ -26,10 +27,9 @@ object PeersManager {
     }
   }
 
-  sealed trait Message
-  case object Unchoke extends Message
-  case object OptimisticUnchoke extends Message
-  case class Broadcast(message: Any) extends Message
+  case class Unchoke(chosen: Set[ByteString], toChoke: Set[ByteString])
+  case object OptimisticUnchoke
+  case class Broadcast(message: Any)
 
 }
 
@@ -71,15 +71,13 @@ class PeersManager extends Actor { this: Parent with ScheduleProvider =>
     case PeerM.Downloaded(pid, size) =>
       peers(pid).rate += size
 
-    case TorrentM.PieceDone(i) =>
+    case PeerM.PieceDone(i) =>
       broadcast(BT.Have(i))
 
-    case Unchoke =>
-      val chosenPeers = kMaxPeers(numUnchokedPeers)
-      val peersToChoke = currentUnchokedPeers &~ chosenPeers
-      chosenPeers foreach { id => peers(id).peer ! BT.Unchoke }
-      peersToChoke foreach { id => peers(id).peer ! BT.Choke }
-      currentUnchokedPeers = chosenPeers
+    case Unchoke(chosen, toChoke) =>
+      chosen foreach { id => peers(id).peer ! BT.Unchoke }
+      toChoke foreach { id => peers(id).peer ! BT.Choke }
+      currentUnchokedPeers = chosen
       scheduleUnchoke()
 
     // TODO: Optimistic Unchoke
@@ -93,8 +91,7 @@ class PeersManager extends Actor { this: Parent with ScheduleProvider =>
     }
   }
 
-  // Find top k peers based on upload speed
-  def kMaxPeers(k: Int): Set[ByteString] = {
+  def kMaxPeers(peers: Map[ByteString, PeerConnection], k: Int): Set[ByteString] = {
     val maxK = new mutable.PriorityQueue[PeerConnection]()
     var minPeerRate = 0.0;
     peers foreach { case (id, peer) =>
@@ -120,9 +117,12 @@ class PeersManager extends Actor { this: Parent with ScheduleProvider =>
     }
   }
 
+  /*
+   * Put in future for async
+   */
   def scheduleUnchoke(): Unit = {
     scheduler.scheduleOnce(unchokeFrequency) {
-      self ! Unchoke
+      Future { unchoke(peers, currentUnchokedPeers, numUnchokedPeers) }
     }
   }
 
@@ -130,6 +130,15 @@ class PeersManager extends Actor { this: Parent with ScheduleProvider =>
     scheduler.scheduleOnce(optimisticUnchokeFrequency) {
       self ! OptimisticUnchoke
     }
+  }
+
+  def unchoke(
+      peers: Map[ByteString, PeerConnection],
+      currentUnchoked: Set[ByteString],
+      numUnchoked: Int): Unit = {
+    val chosen = kMaxPeers(peers, numUnchoked)
+    val toChoke = currentUnchoked &~ chosen
+    self ! Unchoke(chosen, toChoke)
   }
 
 }
