@@ -169,7 +169,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
     case msg: PeerM.PieceDone =>
       parent ! msg
       endCurrentPieceDownload()
-      parent ! PeerM.Ready(peerHas)
+      parent ! PeerM.ReadyForPiece(peerHas)
 
     case _ => // Do Nothing
 
@@ -184,7 +184,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
     case BT.UnchokeR =>
       unstashAll()
       requestor match {
-        case None => parent ! PeerM.Ready(peerHas)
+        case None => parent ! PeerM.ReadyForPiece(peerHas)
         case Some(req) =>
           req ! Resume
           parent ! PeerM.Resume(currentPieceIndex)
@@ -233,7 +233,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
       // what piece to downoad
       case BT.UnchokeR =>
         peerChoking = false
-        parent ! PeerM.Ready(peerHas)
+        parent ! PeerM.ReadyForPiece(peerHas)
 
       case BT.InterestedR =>
         peerInterested = true

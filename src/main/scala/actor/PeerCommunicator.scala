@@ -35,7 +35,7 @@ class PeerCommunicator(
       peersManager forward msg
 
     // PiecesTracker only
-    case msg @ (_: PeerM.Resume | _: PeerM.Ready | _:PeerM.ChokedOnPiece |
+    case msg @ (_: PeerM.Resume | _: PeerM.ReadyForPiece | _:PeerM.ChokedOnPiece |
                 _: PeerM.PieceAvailable | _: PeerM.PieceDone) =>
       piecesTracker forward msg
 

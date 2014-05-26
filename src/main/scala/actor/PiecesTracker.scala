@@ -174,11 +174,12 @@ class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
     case msg: PeerM.Connected =>
       sender ! BT.Bitfield(completedPieces, numPieces)
 
-    // Delegate choosing logic to a PieceChooser actor for async
-    case PeerM.Ready(peerHas) =>
+    // Delegate piece choosing logic to a PieceChooser actor for async
+    case PeerM.ReadyForPiece(peerHas) =>
       val peer = sender
       val possibles = peerHas &~ (completedPieces | requestedPieces)
-      context.actorOf(PieceChooser.props())
+      val chooser = context.actorOf(PieceChooser.props(peer))
+      chooser ! ChoosePiece(possibles, pieces)
 
   }
 
