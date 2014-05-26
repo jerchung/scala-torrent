@@ -44,7 +44,7 @@ object PiecesTracker {
 
     def receive = {
       case ChoosePiece(possibles, pieces) =>
-        val idx = rarest(possibles, pieces.toList)
+        val idx = rarest(possibles, pieces.toList, RarePieceJitter)
         parent ! ChosenPiece(idx, peer, possibles)
     }
 
