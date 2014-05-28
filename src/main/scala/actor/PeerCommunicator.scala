@@ -7,8 +7,8 @@ object PeerCommunicator {
   def props(
       fileManager: ActorRef,
       peersManager: ActorRef,
-      piecesTracker: ActorRef): Props = {
-    Props(new PeerCommunicator(fileManager, peersManager, piecesTracker))
+      piecesManager: ActorRef): Props = {
+    Props(new PeerCommunicator(fileManager, peersManager, piecesManager))
   }
 }
 
@@ -20,24 +20,24 @@ object PeerCommunicator {
 class PeerCommunicator(
     fileManager: ActorRef,
     peersManager: ActorRef,
-    piecesTracker: ActorRef)
+    piecesManager: ActorRef)
     extends Actor {
 
   def receive = {
 
-    // Messages to be sent to both peersManager and piecesTracker
+    // Messages to be sent to both peersManager and piecesManager
     case msg @ (_: PeerM.Disconnected | _: PeerM.Connected) =>
       peersManager forward msg
-      piecesTracker forward msg
+      piecesManager forward msg
 
     // peersManager only
     case msg @ (_: PeerM.Downloaded) =>
       peersManager forward msg
 
-    // PiecesTracker only
+    // PiecesManager only
     case msg @ (_: PeerM.Resume | _: PeerM.ReadyForPiece | _:PeerM.ChokedOnPiece |
                 _: PeerM.PieceAvailable | _: PeerM.PieceDone) =>
-      piecesTracker forward msg
+      piecesManager forward msg
 
     // fileManager only
     case msg @ (_: FM.Write | _: FM.Read) =>

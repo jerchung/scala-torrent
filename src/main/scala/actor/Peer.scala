@@ -131,7 +131,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
       // Don't need to send KeepAlive message if already sending another message
       keepAliveTask map { _.cancel }
       handleMessage(m)
-      keepAliveTask = Some(scheduler.scheduleOnce(1.5 minutes) { sendHeartbeat })
+      keepAliveTask = Some(scheduler.scheduleOnce(1.5 minutes) { sendHeartbeat() })
   }
 
   // Default receive behavior for messages from protocol
@@ -290,7 +290,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
 
   def sendHeartbeat(): Unit = {
     protocol ! BT.KeepAlive
-    keepAliveTask = Some(scheduler.scheduleOnce(1.5 minutes) { sendHeartbeat })
+    keepAliveTask = Some(scheduler.scheduleOnce(1.5 minutes) { sendHeartbeat() })
   }
 
 

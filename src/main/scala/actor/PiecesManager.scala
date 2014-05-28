@@ -12,10 +12,10 @@ import scala.concurrent._
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.util.Random
 
-object PiecesTracker {
+object PiecesManager {
 
   def props(numPieces: Int, pieceSize: Int, totalSize: Int): Props = {
-    Props(new PiecesTracker(numPieces, pieceSize, totalSize) with ProdParent)
+    Props(new PiecesManager(numPieces, pieceSize, totalSize) with ProdParent)
   }
 
   case class PieceInfo(index: Int, var count: Int)
@@ -84,7 +84,7 @@ object PiecesTracker {
 }
 
 /*
- * PiecesTracker keeps track of the frequence of each piece.
+ * PiecesManager keeps track of the frequence of each piece.
  * This actor also is in charge of choosing the next piece for a peer to
  * download.
  * This actor also keeps track of currently choked peers.  If a peer was choked
@@ -93,11 +93,11 @@ object PiecesTracker {
  * can resume download of the piece.  Otherwise, the piece download on that peer
  * will be resetted.
  */
-class PiecesTracker(numPieces: Int, pieceSize: Int, totalSize: Int)
+class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
     extends Actor { this: Parent =>
 
-  import PiecesTracker.Message.ChoosePieceAndReport
-  import PiecesTracker.PieceInfo
+  import PiecesManager.Message.ChoosePieceAndReport
+  import PiecesManager.PieceInfo
 
   // Set of pieces ordered by frequency starting from rarest
   var piecesSet = SortedSet[PieceInfo]()

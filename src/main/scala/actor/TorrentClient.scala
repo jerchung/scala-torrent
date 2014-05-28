@@ -32,7 +32,7 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
 
   import context.dispatcher
   import TorrentClient._
-  import PiecesTracker.Message.ChoosePieceAndReport
+  import PiecesManager.Message.ChoosePieceAndReport
 
   // Constants
   val torrent = Torrent.fromFile(fileName)
@@ -42,8 +42,8 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
   val server           = context.actorOf(PeerServer.props)
   val fileManager      = context.actorOf(FileManager.props(torrent))
   val peersManager     = context.actorOf(PeersManager.props)
-  val piecesTracker    = context.actorOf(
-                           PiecesTracker.props(
+  val piecesManager    = context.actorOf(
+                           PiecesManager.props(
                              torrent.numPieces,
                              torrent.pieceSize,
                              torrent.totalSize
@@ -52,7 +52,7 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
                            PeerCommunicator.props(
                              fileManager,
                              peersManager,
-                             piecesTracker
+                             piecesManager
                          ))
 
   // TorrentM message cases
