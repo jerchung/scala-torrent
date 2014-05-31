@@ -32,7 +32,6 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
 
   import context.dispatcher
   import TorrentClient._
-  import PiecesManager.Message.ChoosePieceAndReport
 
   // Constants
   val torrent = Torrent.fromFile(fileName)
@@ -69,7 +68,7 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
       val port = remote.getPort
       val info = PeerInfo(peerId, Constant.ID.toByteString, torrent.infoHash, ip, port)
       val protocolProp = TorrentProtocol.props(connection)
-      context.actorOf(Peer.props(info, protocolProp, fileManager))
+      context.actorOf(Peer.props(info, protocolProp, peerCommunicator))
 
   }
 

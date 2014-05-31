@@ -24,7 +24,7 @@ object PiecesManager {
       count.compare(pieceCount.count)
     }
 
-    def hashCode(): Int = {
+    override def hashCode(): Int = {
       index
     }
   }
@@ -38,6 +38,11 @@ object PiecesManager {
     }
   }
 
+  /*
+   * Actor in charge of choosing a random piece that's rare for a specific
+   * peer that has sent a PeerM.Ready message to PiecesManager.  Sends a
+   * ChosenPiece message to the PiecesManager upon completion, then gets ended
+   */
   class PieceChooser(peer: ActorRef) extends Actor { this: Parent =>
 
     val RarePieceJitter = 20
@@ -57,17 +62,17 @@ object PiecesManager {
       val availablePiecesBuffer = mutable.ArrayBuffer[Int]()
 
       @tailrec
-      def populateRarePieces(count: Int): Unit = {
+      def populateRarePieces(pieces: List[PieceInfo], count: Int): Unit = {
         if (count <= k && !pieces.isEmpty) {
           val pieceInfo = pieces.head
-          if (possibles(pieceInfo.index)) {
+          if (possibles contains pieceInfo.index) {
             availablePiecesBuffer += pieceInfo.index
           }
           populateRarePieces(pieces.tail, count + 1)
         }
       }
 
-      populateRarePieces(0)
+      populateRarePieces(pieces, 0)
       val chosenPieces = availablePiecesBuffer.toArray
       if (chosenPieces.isEmpty) {
         -1
@@ -96,8 +101,7 @@ object PiecesManager {
 class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
     extends Actor { this: Parent =>
 
-  import PiecesManager.Message.ChoosePieceAndReport
-  import PiecesManager.PieceInfo
+  import PiecesManager._
 
   // Set of pieces ordered by frequency starting from rarest
   var piecesSet = SortedSet[PieceInfo]()
@@ -114,8 +118,6 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
   // Which pieces are currently being requested
   var requestedPieces = BitSet()
 
-  val RarePieceJitter = 20
-
   // Initialize with all pieces at 0 frequency
   override def preStart(): Unit = {
     (0 until numPieces) foreach { idx =>
@@ -126,6 +128,7 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
 
   def receive = {
 
+    // Message sent from pieceChooser
     case ChosenPiece(idx, peer, possibles) =>
       val size =
         if (idx == numPieces - 1)
@@ -133,18 +136,21 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
         else
           pieceSize
 
-      // If somewhile this piece was already chosen while the piece chooser
+      // If somehow this piece was already chosen while the piece chooser
       // actor was working, we remove the idx from the possibles and tell it to
-      // rechoose
+      // rechoose.  Otherwise send chosen piece to peer and end the choosing
+      // actor
       if (idx >= 0) {
         if (!(completedPieces | requestedPieces).contains(idx)) {
           chokedPieces.get(idx) map { _ ! PeerM.ClearPiece }
+          chokedPieces -= idx
           peer ! PeerM.DownloadPiece(idx, size)
           requestedPieces += idx
           sender ! PoisonPill
         } else {
-          sender ! ChoosePiece(possibles - idx, pieces)
+          sender ! ChoosePiece(possibles - idx, piecesSet)
         }
+      // No wanted pieces from peer
       } else {
         peer ! BT.NotInterested
         sender ! PoisonPill
@@ -179,7 +185,7 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
       val peer = sender
       val possibles = peerHas &~ (completedPieces | requestedPieces)
       val chooser = context.actorOf(PieceChooser.props(peer))
-      chooser ! ChoosePiece(possibles, pieces)
+      chooser ! ChoosePiece(possibles, piecesSet)
 
   }
 

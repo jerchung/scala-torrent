@@ -16,8 +16,8 @@ import scala.concurrent.duration._
 import scala.language.postfixOps
 
 object Peer {
-  def props(info: PeerInfo, protocolProps: Props, fileManager: ActorRef): Props = {
-    Props(new Peer(info, protocolProps, fileManager) with ProdParent with ProdScheduler)
+  def props(info: PeerInfo, protocolProps: Props, router: ActorRef): Props = {
+    Props(new Peer(info, protocolProps, router) with ProdParent with ProdScheduler)
   }
 
   // This case class encapsulates the information needed to create a peer actor
@@ -32,8 +32,9 @@ object Peer {
 }
 
 // One of these actors per peer
-/* Parent must be Torrent Client */
-class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
+// router actorRef is a PeerCommunicator actor which will forward the messages
+// to the correct actors
+class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     extends Actor
     with Stash { this: Parent with ScheduleProvider =>
 
@@ -80,14 +81,14 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   }
 
   override def postStop(): Unit = {
-    peerId map { id => parent ! PeerM.Disconnected(id, peerHas) }
+    peerId map { id => router ! PeerM.Disconnected(id, peerHas) }
   }
 
 
   def waitingForHandshake: Receive = {
     case BT.HandshakeR(infoHash, peerId) if (infoHash == this.infoHash) =>
       protocol ! BT.Handshake(infoHash, ownId)
-      parent ! PeerM.Connected(peerId)
+      router ! PeerM.Connected(peerId)
       this.peerId = Some(peerId)
       heartbeat()
       context.become(acceptBitfield)
@@ -98,7 +99,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   def initiatedHandshake: Receive = {
     case BT.HandshakeR(infoHash, peerId)
         if (infoHash == this.infoHash && peerId == this.peerId.get) =>
-      parent ! PeerM.Connected(peerId)
+      router ! PeerM.Connected(peerId)
       heartbeat()
       context.become(acceptBitfield)
 
@@ -117,7 +118,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
   def acceptBitfield: Receive = receiveMessage orElse {
     case BT.BitfieldR(bitfield) =>
       peerHas |= bitfield
-      parent ! PeerM.PieceAvailable(Right(peerHas))
+      router ! PeerM.PieceAvailable(Right(peerHas))
       context.become(receive)
 
     case msg: BT.Reply =>
@@ -159,7 +160,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
 
     // End the peer if the piece is completed with an invalid hash
     case msg: PeerM.PieceInvalid =>
-      parent ! msg
+      router ! msg
       context stop self
 
     /* If current piece is completed successfully, report to parent and kill
@@ -167,9 +168,9 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
      * parent a ready message to find out which next piece to download
      */
     case msg: PeerM.PieceDone =>
-      parent ! msg
+      router ! msg
       endCurrentPieceDownload()
-      parent ! PeerM.ReadyForPiece(peerHas)
+      router ! PeerM.ReadyForPiece(peerHas)
 
     case _ => // Do Nothing
 
@@ -184,10 +185,10 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
     case BT.UnchokeR =>
       unstashAll()
       requestor match {
-        case None => parent ! PeerM.ReadyForPiece(peerHas)
+        case None => router ! PeerM.ReadyForPiece(peerHas)
         case Some(req) =>
           req ! Resume
-          parent ! PeerM.Resume(currentPieceIndex)
+          router ! PeerM.Resume(currentPieceIndex)
       }
       context.become(receive)
     case m: BT.Message =>
@@ -225,7 +226,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
       case BT.ChokeR =>
         peerChoking = true
         if (currentPieceIndex >= 0) {
-          parent ! PeerM.ChokedOnPiece(currentPieceIndex)
+          router ! PeerM.ChokedOnPiece(currentPieceIndex)
         }
         context.become(choked)
 
@@ -233,7 +234,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
       // what piece to downoad
       case BT.UnchokeR =>
         peerChoking = false
-        parent ! PeerM.ReadyForPiece(peerHas)
+        router ! PeerM.ReadyForPiece(peerHas)
 
       case BT.InterestedR =>
         peerInterested = true
@@ -243,20 +244,20 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
 
       case BT.RequestR(idx, off, len) =>
         if (iHave.contains(idx) && !peerChoking) {
-          fileManager ! FM.Read(idx, off, len)
+          router ! FM.Read(idx, off, len)
         } else {
           context stop self
         }
 
       // A part of piece came in due to a request
       case BT.PieceR(idx, off, block) =>
-        peerId map { pid => parent ! PeerM.Downloaded(pid, block.length) }
-        fileManager ! FM.Write(idx, off, block)
+        peerId map { pid => router ! PeerM.Downloaded(pid, block.length) }
+        router ! FM.Write(idx, off, block)
         requestor map { _ ! BlockDoneAndRequestNext(off) }
 
       case BT.HaveR(idx) =>
         peerHas += idx
-        parent ! PeerM.PieceAvailable(Left(idx))
+        router ! PeerM.PieceAvailable(Left(idx))
 
       case BT.CancelR(idx, off, len) =>
       case _ =>
@@ -279,7 +280,7 @@ class Peer(info: PeerInfo, protocolProps: Props, fileManager: ActorRef)
         keepAlive = false
         scheduler.scheduleOnce(3 minutes) { checkHeartbeat }
       } else {
-        parent ! "No KeepAlive"
+        router ! "No KeepAlive"
         context stop self
       }
     }

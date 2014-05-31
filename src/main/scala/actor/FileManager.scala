@@ -7,7 +7,7 @@ import java.io.RandomAccessFile
 import java.security.MessageDigest
 import org.jerchung.torrent.actor.message.BT
 import org.jerchung.torrent.actor.message.FM._
-import org.jerchung.torrent.actor.message.TorrentM
+import org.jerchung.torrent.actor.message.PeerM
 import org.jerchung.torrent.diskIO._
 import org.jerchung.torrent.piece._
 import org.jerchung.torrent.Torrent
@@ -87,12 +87,12 @@ class FileManager(torrent: Torrent) extends Actor {
       peer: ActorRef): Unit = {
     piece.insert(offset, block) match {
       case p @ InMemPiece(idx, off, size, hash, data) =>
-        peer ! TorrentM.PieceDone(idx)
+        peer ! PeerM.PieceDone(idx)
         pieces(idx) = new InDiskPiece(idx, off, size, hash, diskIO)
         cachedPieces(idx) = p
       case InvalidPiece(idx, off, size, hash) =>
         pieces(idx) = new UnfinishedPiece(idx, off, size, hash, diskIO)
-        peer ! TorrentM.PieceInvalid(idx)
+        peer ! PeerM.PieceInvalid(idx)
       case _ =>
     }
   }

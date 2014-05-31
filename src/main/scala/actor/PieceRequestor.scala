@@ -29,7 +29,7 @@ class PieceRequestor(protocol: ActorRef, idx: Int, size: Int)
   var offset = 0
   var pipeline = Set[Int]()
 
-  // Want to fill up pipeline with requests
+  // Want to fill up pipeline with requests at initialization
   override def preStart(): Unit = {
     pipelineRequests(MaxRequestPipeline)
   }
