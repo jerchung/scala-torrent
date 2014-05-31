@@ -33,6 +33,7 @@ class SingleFileWorker(
 
   def receive = {
 
+    // Even though the message contains index, don't need it
     case FM.Read(idx, off, length) =>
       val block = read(idx, off, length)
       parent ! FM.ReadDone(idx, off, block)

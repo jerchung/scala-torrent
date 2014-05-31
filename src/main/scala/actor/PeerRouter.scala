@@ -3,12 +3,12 @@ package org.jerchung.torrent.actor
 import akka.actor.{ Actor, ActorRef, Props, Cancellable }
 import org.jerchung.torrent.actor.message. { PeerM, FM }
 
-object PeerCommunicator {
+object PeerRouter {
   def props(
       fileManager: ActorRef,
       peersManager: ActorRef,
       piecesManager: ActorRef): Props = {
-    Props(new PeerCommunicator(fileManager, peersManager, piecesManager))
+    Props(new PeerRouter(fileManager, peersManager, piecesManager))
   }
 }
 
@@ -17,7 +17,7 @@ object PeerCommunicator {
  * to the correct actor for the correct action.  Messages will be forwarded to
  * preserve the sender reference
  */
-class PeerCommunicator(
+class PeerRouter(
     fileManager: ActorRef,
     peersManager: ActorRef,
     piecesManager: ActorRef)
@@ -35,8 +35,9 @@ class PeerCommunicator(
       peersManager forward msg
 
     // PiecesManager only
-    case msg @ (_: PeerM.Resume | _: PeerM.ReadyForPiece | _:PeerM.ChokedOnPiece |
-                _: PeerM.PieceAvailable | _: PeerM.PieceDone) =>
+    case msg @ (_: PeerM.Resume | _: PeerM.ReadyForPiece |
+                _:PeerM.ChokedOnPiece | _: PeerM.PieceAvailable |
+                _: PeerM.PieceDone) =>
       piecesManager forward msg
 
     // fileManager only

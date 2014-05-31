@@ -32,7 +32,7 @@ object Peer {
 }
 
 // One of these actors per peer
-// router actorRef is a PeerCommunicator actor which will forward the messages
+// router actorRef is a PeerRouter actor which will forward the messages
 // to the correct actors
 class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     extends Actor

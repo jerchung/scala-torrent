@@ -47,8 +47,8 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
                              torrent.pieceSize,
                              torrent.totalSize
                          ))
-  val peerCommunicator = context.actorOf(
-                           PeerCommunicator.props(
+  val peerRouter = context.actorOf(
+                           PeerRouter.props(
                              fileManager,
                              peersManager,
                              piecesManager
@@ -68,7 +68,7 @@ class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
       val port = remote.getPort
       val info = PeerInfo(peerId, Constant.ID.toByteString, torrent.infoHash, ip, port)
       val protocolProp = TorrentProtocol.props(connection)
-      context.actorOf(Peer.props(info, protocolProp, peerCommunicator))
+      context.actorOf(Peer.props(info, protocolProp, peerRouter))
 
   }
 
