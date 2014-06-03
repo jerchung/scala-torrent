@@ -12,7 +12,7 @@ import org.jerchung.torrent.actor.message.FM
 
 object SingleFileWorker {
   def props(name: String, pieceSize: Int, size: Int): Props = {
-    Props(new SingleFileWorker(name, pieceSize, size) extends ProdParent)
+    Props(new SingleFileWorker(name, pieceSize, size) with ProdParent)
   }
 }
 
@@ -53,7 +53,7 @@ class SingleFileWorker(
   override def write(offset: Int, src: ByteString): Int = {
     val buffer = src.asByteBuffer
     fc.position(offset)
-    fc.write(src)
+    fc.write(buffer)
   }
 
 }

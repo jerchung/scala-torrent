@@ -1,9 +1,11 @@
 package org.jerchung.torrent.actor
 
-import akka.actor.{Actor, ActorRef, Props}
 import akka.actor.PoisonPill
+import akka.actor.{Actor, ActorRef, Props}
 import akka.util.ByteString
+import com.escalatesoft.subcut.inject._
 import org.jerchung.torrent.actor.message.{ TorrentM, TrackerM, BT, PeerM }
+import org.jerchung.torrent.dependency.BindingKeys._
 import scala.annotation.tailrec
 import scala.collection.BitSet
 import scala.collection.mutable
@@ -179,7 +181,9 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
     case PeerM.ReadyForPiece(peerHas) =>
       val peer = sender
       val possibles = peerHas &~ (completedPieces | requestedPieces)
-      val chooser = context.actorOf(PieceChooser.props(peer))
+      val chooser = injectOptional [ActorRef](PieceChooserId) getOrElse {
+        context.actorOf(PieceChooser.props(peer))
+      }
       chooser ! ChoosePiece(possibles, piecesSet)
 
   }

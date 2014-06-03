@@ -1,0 +1,1 @@
+addCompilerPlugin("com.escalatesoft.subcut" %% "subcut" % "2.0")

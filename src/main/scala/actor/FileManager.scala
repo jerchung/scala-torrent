@@ -5,9 +5,12 @@ import akka.util.ByteString
 import com.twitter.util.LruMap
 import java.io.RandomAccessFile
 import java.security.MessageDigest
+import com.escalatesoft.subcut.inject._
 import org.jerchung.torrent.actor.message.BT
 import org.jerchung.torrent.actor.message.FM._
 import org.jerchung.torrent.actor.message.PeerM
+import org.jerchung.torrent.actor.persist.StorageWorker
+import org.jerchung.torrent.actor.dependency.BindingKeys._
 import org.jerchung.torrent.diskIO._
 import org.jerchung.torrent.piece._
 import org.jerchung.torrent.Torrent
@@ -15,8 +18,8 @@ import org.jerchung.torrent.{ Single, Multiple }
 import scala.collection.mutable
 
 object FileManager {
-  def props(torrent: Torrent, storageWorker: ActorRef): Props = {
-    Props(new FileManager(torrent, storageWorker))
+  def props(torrent: Torrent): Props = {
+    Props(new FileManager(torrent))
   }
 
   // Messages to be used internally between FileManager and Storage worker
@@ -34,12 +37,10 @@ object FileManager {
  * Parent of this actor *should* be TorrentClient
  *
  * @torrent Torrent object passed in since many values
- * @storageWorker ActorRef which will take care of read/write of pieces
  */
-class FileManager(torrent: Torrent, storageWorker: ActorRef) extends Actor {
+class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
 
-  import FileManager.FileWorker
-  type FW = FileWorker
+  import FileManager.{ FileWorker => FW }
 
   // Important values
   val numPieces   = torrent.numPieces
@@ -54,6 +55,25 @@ class FileManager(torrent: Torrent, storageWorker: ActorRef) extends Actor {
   val diskIO: DiskIO = torrent.fileMode match {
     case Single   => new SingleFileIO(torrent.name, pieceSize, totalSize)
     case Multiple => new MultiFileIO(pieceSize, torrent.files)
+  }
+
+  val parent = injectOptional [ActorRef](ParentId) getOrElse {
+    context.parent
+  }
+
+  // Actor that takes care of reading / writing from disk
+  val storageWorker = injectOptional [ActorRef](StorageWorkerId) getOrElse {
+    torrent.fileMode match {
+      case Single =>
+        context.actorOf(SingleStorageWorker.props(
+          torrent.name,
+          pieceSize,
+          totalSize
+        ))
+
+      case Multi =>
+        context.actorOf(MultiStorageWorker.props(torrent.files, pieceSize))
+    }
   }
 
   // Last piece may not be the same size as the others.

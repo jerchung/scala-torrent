@@ -9,7 +9,7 @@ import java.security.MessageDigest
 
 sealed trait FileMode
 case object Single extends FileMode
-case object Multiple extends FileMode
+case object Multi extends FileMode
 
 case class TorrentFile(length: Int, path: String = "")
 
@@ -63,7 +63,7 @@ class Torrent(
   val pieceSize = info("pieces length").asInstanceOf[Int]
 
   // Torrent can have single or multiple files
-  val fileMode: FileMode = if (info contains "files") Multiple else Single
+  val fileMode: FileMode = if (info contains "files") Multi else Single
 
   /**
    * Can be either the name of the file (Single) or directory for files
@@ -72,8 +72,8 @@ class Torrent(
   val name: String = info("name").asInstanceOf[ByteString].toChars
 
   val files: List[TorrentFile] = fileMode match {
-    case Single   => List(TorrentFile(info("length").asInstanceOf[Int], name))
-    case Multiple => getMultipleFiles
+    case Single => List(TorrentFile(info("length").asInstanceOf[Int], name))
+    case Multi => getMultipleFiles
   }
 
   // Total number of pieces

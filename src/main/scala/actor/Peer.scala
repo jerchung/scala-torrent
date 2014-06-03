@@ -1,14 +1,16 @@
 package org.jerchung.torrent.actor
 
 import akka.actor.{ Actor, ActorRef, Props, Cancellable }
-import akka.actor.Stash
 import akka.actor.PoisonPill
+import akka.actor.Stash
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
 import akka.util.Timeout
+import com.escalatesoft.subcut.inject._
 import org.jerchung.torrent.actor.message.{ PeerM, BT, TorrentM, FM }
 import org.jerchung.torrent.actor.Peer.PeerInfo
 import org.jerchung.torrent.Constant
+import org.jerchung.torrent.dependency.BindingKeys._
 import scala.annotation.tailrec
 import scala.collection.BitSet
 import scala.collection.mutable
@@ -39,12 +41,12 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     with Stash { this: Parent with ScheduleProvider =>
 
   import context.dispatcher
-  import PieceRequestor.Message.{ Resume, BlockDoneAndRequestNext }
+  import BlockRequestor.Message.{ Resume, BlockDoneAndRequestNext }
 
   val MaxRequestPipeline = 5
   val protocol = context.actorOf(protocolProps)
 
-  // Reference for a pieceRequestor
+  // Reference for a BlockRequestor
   var requestor: Option[ActorRef] = None
 
   // index of piece currently being downloaded.  If -1 then no piece is being
@@ -146,12 +148,11 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
   def receiveOther: Receive = {
 
     // Let's download a piece
-    // Create a new PieceRequestor actor which will fire off requests upon
+    // Create a new BlockRequestor actor which will fire off requests upon
     // construction
     case PeerM.DownloadPiece(idx, size) =>
       currentPieceIndex = idx
-      requestor = Some(context.actorOf(
-        PieceRequestor.props(protocol, idx, size)))
+      requestor = Some(createBlockRequestor)
 
     // Peer was being choked, and another peer took up the piece this peer was
     // downloading before it was choked, so have to stop downloding this piece
@@ -261,6 +262,14 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
 
       case BT.CancelR(idx, off, len) =>
       case _ =>
+    }
+  }
+
+  // Returns actorRef of BLockRequestor Actor, also has depedency injection
+  // logic
+  def createBlockRequestor(protocol: ActorRef, index: Int, size: Int): ActorRef = {
+    injectOptional [ActorRef](BlockRequestorId) getOrElse {
+      context.actorOf(BlockRequestor.props(protocol, index, size))
     }
   }
 

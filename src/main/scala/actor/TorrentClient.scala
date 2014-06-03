@@ -7,11 +7,13 @@ import akka.util.ByteString
 import akka.util.Timeout
 import java.net.InetSocketAddress
 import java.net.URLEncoder
-import org.jerchung.torrent.bencode.Bencode
+import com.escalatesoft.subcut.inject._
 import org.jerchung.torrent.actor.message.{ TorrentM, TrackerM, BT, PeerM }
 import org.jerchung.torrent.actor.Peer.PeerInfo
+import org.jerchung.torrent.bencode.Bencode
 import org.jerchung.torrent.Constant
 import org.jerchung.torrent.Convert._
+import org.jerchung.torrent.dependency.BindingKeys
 import org.jerchung.torrent.Torrent
 import scala.annotation.tailrec
 import scala.collection.BitSet
@@ -22,36 +24,58 @@ import scala.util.Random
 object TorrentClient {
 
   def props(fileName: String): Props = {
-    Props(new TorrentClient(fileName: String) with ProdParent)
+    Props(new TorrentClient(fileName: String))
   }
 
 }
 
 // This actor takes care of the downloading of a *single* torrent
-class TorrentClient(fileName: String) extends Actor { this: Parent =>
+class TorrentClient(fileName: String) extends Actor with AutoInjectable {
 
   import context.dispatcher
+  import BindingKeys._
 
   // Constants
   val torrent = Torrent.fromFile(fileName)
 
-  // Spawn needed actor(s)
-  val trackerClient    = context.actorOf(TrackerClient.props)
-  val server           = context.actorOf(PeerServer.props)
-  val fileManager      = context.actorOf(FileManager.props(torrent))
-  val peersManager     = context.actorOf(PeersManager.props)
-  val piecesManager    = context.actorOf(
-                           PiecesManager.props(
-                             torrent.numPieces,
-                             torrent.pieceSize,
-                             torrent.totalSize
-                         ))
-  val peerRouter = context.actorOf(
-                           PeerRouter.props(
-                             fileManager,
-                             peersManager,
-                             piecesManager
-                         ))
+  // Spawn needed actor(s) with dependency injection
+  val trackerClient = injectOptional [ActorRef](TrackerClientId) getOrElse {
+    context.actorOf(TrackerClient.props)
+  }
+
+  val server = injectOptional [ActorRef](PeerServerId) getOrElse {
+    context.actorOf(PeerServer.props)
+  }
+
+  val fileManager = injectOptional [ActorRef](FileManagerId) getOrElse {
+    context.actorOf(FileManager.props(torrent))
+  }
+
+  val peersManager = injectOptional [ActorRef](PeersManagerId) getOrElse {
+    context.actorOf(PeersManager.props)
+  }
+
+  val piecesManager = injectOptional [ActorRef](PiecesManagerId) getOrElse {
+    context.actorOf(
+      PiecesManager.props(
+        torrent.numPieces,
+        torrent.pieceSize,
+        torrent.totalSize
+    ))
+  }
+
+  val peerRouter = injectOptional [ActorRef](PeerRouterId) getOrElse {
+    context.actorOf(
+      PeerRouter.props(
+        fileManager,
+        peersManager,
+        piecesManager
+    ))
+  }
+
+  val parent = injectOptional [ActorRef](ParentId) getOrElse {
+    context.parent
+  }
 
   // TorrentM message cases
   def receiveTorrentMessage: Receive = {

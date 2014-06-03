@@ -5,9 +5,9 @@ import org.jerchung.torrent.actor.message.BT
 import org.jerchung.torrent.Constant
 import scala.annotation.tailrec
 
-object PieceRequestor {
+object BlockRequestor {
   def props(protocol: ActorRef, idx: Int, size: Int): Props = {
-    Props(new PieceRequestor(protocol, idx, size) with ProdParent)
+    Props(new BlockRequestor(protocol, idx, size) with ProdParent)
   }
 
   object Message {
@@ -21,10 +21,10 @@ object PieceRequestor {
  * This actor requests blocks from the peer until the piece is completed.  Sends
  * block requests to the protocol
  */
-class PieceRequestor(protocol: ActorRef, idx: Int, size: Int)
+class BlockRequestor(protocol: ActorRef, idx: Int, size: Int)
     extends Actor { this: Parent =>
 
-  import PieceRequestor.Message._
+  import BlockRequestor.Message._
 
   val MaxRequestPipeline = 5
   var offset = 0

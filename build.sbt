@@ -16,7 +16,8 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-actor" % "2.2.3",
   "com.twitter" %% "util-collection" % "6.3.6",
   "com.github.nscala-time" %% "nscala-time" % "0.6.0",
-  "net.databinder.dispatch" %% "dispatch-core" % "0.11.0"
+  "net.databinder.dispatch" %% "dispatch-core" % "0.11.0",
+  "com.escalatesoft.subcut" %% "subcut" % "2.0"
 )
 
 libraryDependencies ++= Seq(

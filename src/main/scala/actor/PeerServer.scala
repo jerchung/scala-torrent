@@ -2,21 +2,30 @@ package org.jerchung.torrent.actor
 
 import org.jerchung.torrent.actor.message.{ BT, TorrentM }
 import akka.actor.{ Props, Actor, ActorRef }
+import akka.io.IO
 import akka.io.Tcp
 import akka.pattern.ask
 import akka.util.Timeout
 import java.net.InetSocketAddress
+import com.escalatesoft.subcut.inject._
+import org.jerchung.torrent.dependency.BindingKeys
 import scala.concurrent.duration._
 
 object PeerServer {
   def props: Props = {
-    Props(new PeerServer with ProdParent with ProdTcpManager)
+    Props(new PeerServer)
   }
 }
 
 // Listen for new connections made from peers
 // Parent is Torrent Client
-class PeerServer extends Actor { this: Parent with TcpManager =>
+class PeerServer extends Actor with AutoInjectable {
+
+  import BindingKeys._
+  import context.system
+
+  val tcpManager = injectOptional [ActorRef](TcpId) getOrElse { IO(Tcp) }
+  val parent = injectOptional [ActorRef](ParentId) getOrElse { context.parent }
 
   override def preStart(): Unit = {
     // Figure out which port to bind to later - right now 0 defaults to random
