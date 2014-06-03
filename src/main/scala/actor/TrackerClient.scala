@@ -29,14 +29,14 @@ class TrackerClient(val announceUrl: String) extends Actor {
       }
     }
 
-    val getRequestVars = requestParams.foldLeft(List[String]()) {
+    val requestVars = requestParams.foldLeft(List[String]()) {
       case (vars, k) if request.contains(k) =>
         s"""${k}=${request("k")}""" :: vars
       case (vars, k) => vars
     }.mkString("&")
-    val getRequestUrl = s"${announceUrl}?${getRequestVars}"
+    val requestUrl = s"${announceUrl}?${requestVars}"
 
-    val req = url(getRequestUrl)
+    val req = url(requestUrl)
     val resp = Http(req OK as.String)
 
     resp onComplete {

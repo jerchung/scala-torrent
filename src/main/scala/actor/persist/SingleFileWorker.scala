@@ -33,10 +33,9 @@ class SingleFileWorker(
 
   def receive = {
 
-    // Even though the message contains index, don't need it
-    case FM.Read(idx, off, length) =>
-      val block = read(idx, off, length)
-      parent ! FM.ReadDone(idx, off, block)
+    // The offset in this is message is the offset within the file
+    case FW.Read(off, length) =>
+      val block = read(off, length)
       sender ! BT.Piece(idx, off, block)
 
     case FM.Write(idx, off, block) =>
@@ -44,8 +43,17 @@ class SingleFileWorker(
 
   }
 
-  override def read(idx: Int, off: Int, length: Int): ByteString = {
+  override def read(offset: Int, length: Int): ByteString = {
+    val buffer = ByteBuffer.allocate(length)
+    fc.position(offset)
+    fc.read(buffer)
+    ByteString(buffer)
+  }
 
+  override def write(offset: Int, src: ByteString): Int = {
+    val buffer = src.asByteBuffer
+    fc.position(offset)
+    fc.write(src)
   }
 
 }

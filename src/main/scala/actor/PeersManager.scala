@@ -20,7 +20,7 @@ object PeersManager {
   case class PeerConnection(id: ByteString, peer: ActorRef, var rate: Double)
       extends Ordered[PeerConnection] {
 
-    // Want the minimum to be highest priority
+    // Want to invert priority
     // When put into priority queue, max becomes min and vice versa
     def compare(that: PeerConnection): Int = {
       -1 * rate.compare(that.rate)
@@ -105,7 +105,7 @@ class PeersManager extends Actor { this: Parent with ScheduleProvider =>
         maxK.enqueue(peer)
 
         // head actually returns the peerConnection with min rate due to the
-        // inversion of priorities in the PeerConnection class
+        // inversion of priorities in compare method of the PeerConnection class
         minPeerRate = maxK.head.rate
       }
 

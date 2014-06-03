@@ -18,7 +18,8 @@ object PieceRequestor {
 }
 
 /*
- * This actor requests blocks from the peer until the piece is completed
+ * This actor requests blocks from the peer until the piece is completed.  Sends
+ * block requests to the protocol
  */
 class PieceRequestor(protocol: ActorRef, idx: Int, size: Int)
     extends Actor { this: Parent =>

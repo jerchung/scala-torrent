@@ -16,13 +16,13 @@ object TorrentProtocol {
   }
 
   // ByteString of peer messages which stay constant
-  lazy val keepAlive = ByteString(0, 0, 0, 0)
-  lazy val choke = ByteString(0, 0, 0, 1, 0)
-  lazy val unchoke = ByteString(0, 0, 0, 1, 1)
-  lazy val interested = ByteString(0, 0, 0, 1, 2)
-  lazy val notInterested = ByteString(0, 0, 0, 1, 3)
-  lazy val reserved = ByteString(0, 0, 0, 0, 0, 0, 0, 0)
-  lazy val protocol = ByteString.fromString("BitTorrent protocol")
+  val keepAlive = ByteString(0, 0, 0, 0)
+  val choke = ByteString(0, 0, 0, 1, 0)
+  val unchoke = ByteString(0, 0, 0, 1, 1)
+  val interested = ByteString(0, 0, 0, 1, 2)
+  val notInterested = ByteString(0, 0, 0, 1, 3)
+  val reserved = ByteString(0, 0, 0, 0, 0, 0, 0, 0)
+  val protocol = ByteString.fromString("BitTorrent protocol")
 
   def have(idx: Int): ByteString = {
     ByteString(0, 0, 0, 5, 4) ++ byteStringify(4, idx)

@@ -154,7 +154,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
         PieceRequestor.props(protocol, idx, size)))
 
     // Peer was being choked, and another peer took up the piece this peer was
-    // downloading before it was choked
+    // downloading before it was choked, so have to stop downloding this piece
     case PeerM.ClearPiece =>
       endCurrentPieceDownload()
 
@@ -181,7 +181,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
    * which will cause actor to return to recieve state.  Stash any message sent
    * from client for unstashing when returning to receive state.
    */
-  def choked: Receive = {
+  def choked: Receive = receiveOther orElse {
     case BT.UnchokeR =>
       unstashAll()
       requestor match {
@@ -264,7 +264,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     }
   }
 
-  // Reset piece index to -1 and end requestor actor
+  // Reset piece index to -1 and end requestor actor.  Clear all references
   def endCurrentPieceDownload(): Unit = {
     currentPieceIndex = -1
     requestor map { _ ! PoisonPill }

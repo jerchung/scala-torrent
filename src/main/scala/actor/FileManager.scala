@@ -15,9 +15,16 @@ import org.jerchung.torrent.{ Single, Multiple }
 import scala.collection.mutable
 
 object FileManager {
-  def props(torrent: Torrent): Props = {
-    Props(classOf[FileManager], torrent)
+  def props(torrent: Torrent, storageWorker: ActorRef): Props = {
+    Props(new FileManager(torrent, storageWorker))
   }
+
+  // Messages to be used internally between FileManager and Storage worker
+  object FileWorker {
+    case class Read(offset: Int, length: Int)
+    case class Write(offset: Int, block: ByteString)
+  }
+
 }
 
 /**
@@ -27,8 +34,12 @@ object FileManager {
  * Parent of this actor *should* be TorrentClient
  *
  * @torrent Torrent object passed in since many values
+ * @storageWorker ActorRef which will take care of read/write of pieces
  */
-class FileManager(torrent: Torrent) extends Actor {
+class FileManager(torrent: Torrent, storageWorker: ActorRef) extends Actor {
+
+  import FileManager.FileWorker
+  type FW = FileWorker
 
   // Important values
   val numPieces   = torrent.numPieces

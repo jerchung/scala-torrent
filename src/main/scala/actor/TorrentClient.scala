@@ -22,16 +22,15 @@ import scala.util.Random
 object TorrentClient {
 
   def props(fileName: String): Props = {
-    Props(new TorrentClient(fileName: String) with ProdScheduler)
+    Props(new TorrentClient(fileName: String) with ProdParent)
   }
 
 }
 
 // This actor takes care of the downloading of a *single* torrent
-class TorrentClient(fileName: String) extends Actor { this: ScheduleProvider =>
+class TorrentClient(fileName: String) extends Actor { this: Parent =>
 
   import context.dispatcher
-  import TorrentClient._
 
   // Constants
   val torrent = Torrent.fromFile(fileName)

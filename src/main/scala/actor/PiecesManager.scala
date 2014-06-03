@@ -128,33 +128,28 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
 
   def receive = {
 
-    // Message sent from pieceChooser
-    case ChosenPiece(idx, peer, possibles) =>
-      val size =
-        if (idx == numPieces - 1)
-          totalSize - (pieceSize * (numPieces - 1))
-        else
-          pieceSize
+    // Message sent from pieceChooser with valid index
+    case ChosenPiece(idx, peer, possibles) if (idx >= 0) =>
+      val size = pieceSize min (totalSize - (pieceSize * idx))
 
       // If somehow this piece was already chosen while the piece chooser
       // actor was working, we remove the idx from the possibles and tell it to
       // rechoose.  Otherwise send chosen piece to peer and end the choosing
       // actor
-      if (idx >= 0) {
-        if (!(completedPieces | requestedPieces).contains(idx)) {
-          chokedPieces.get(idx) map { _ ! PeerM.ClearPiece }
-          chokedPieces -= idx
-          peer ! PeerM.DownloadPiece(idx, size)
-          requestedPieces += idx
-          sender ! PoisonPill
-        } else {
-          sender ! ChoosePiece(possibles - idx, piecesSet)
-        }
-      // No wanted pieces from peer
-      } else {
-        peer ! BT.NotInterested
+      if (!(completedPieces | requestedPieces).contains(idx)) {
+        chokedPieces.get(idx) map { _ ! PeerM.ClearPiece }
+        chokedPieces -= idx
+        peer ! PeerM.DownloadPiece(idx, size)
+        requestedPieces += idx
         sender ! PoisonPill
+      } else {
+        sender ! ChoosePiece(possibles - idx, piecesSet)
       }
+
+    // Sent from PieceChooser with invalid index
+    case ChosenPiece(idx, peer, possibles) if (idx < 0) =>
+      peer ! BT.NotInterested
+      sender ! PoisonPill
 
     // Update frequency of pieces
     case PeerM.PieceAvailable(available) =>
