@@ -43,7 +43,8 @@ class BlockRequestor(protocol: ActorRef, idx: Int, size: Int)
       pipeline -= off
       pipelineRequests(1)
 
-    // Re-request any straggling pieces
+    // Re-request any straggling blocks which were not actually requested due
+    // to peer choking
     case Resume =>
       pipeline foreach { off =>
         val requestSize = Constant.BlockSize min (size - off)

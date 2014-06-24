@@ -24,7 +24,7 @@ class ConnectingPeer(remote: InetSocketAddress, peerId: ByteString)
   import context.system
 
   val tcpManager = injectOptional [ActorRef](TcpId) getOrElse { IO(Tcp) }
-  val parent = injectOptional [ActorRef](TcpId) getOrElse { context.parent }
+  val parent = injectOptional [ActorRef](ParentId) getOrElse { context.parent }
 
   override def preStart(): Unit = {
     tcpManager ! Tcp.Connect(remote)

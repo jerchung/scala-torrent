@@ -19,7 +19,7 @@ import scala.language.postfixOps
 
 object Peer {
   def props(info: PeerInfo, protocolProps: Props, router: ActorRef): Props = {
-    Props(new Peer(info, protocolProps, router) with ProdParent with ProdScheduler)
+    Props(new Peer(info, protocolProps, router))
   }
 
   // This case class encapsulates the information needed to create a peer actor
@@ -38,7 +38,7 @@ object Peer {
 // to the correct actors
 class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     extends Actor
-    with Stash { this: Parent with ScheduleProvider =>
+    with Stash {
 
   import context.dispatcher
   import BlockRequestor.Message.{ Resume, BlockDoneAndRequestNext }
@@ -186,7 +186,8 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     case BT.UnchokeR =>
       unstashAll()
       requestor match {
-        case None => router ! PeerM.ReadyForPiece(peerHas)
+        case None =>
+          router ! PeerM.ReadyForPiece(peerHas)
         case Some(req) =>
           req ! Resume
           router ! PeerM.Resume(currentPieceIndex)
@@ -196,7 +197,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
       stash()
   }
 
-  // Link up all the default receive behaviors
+  // Composition of all the default receive behaviors
   def receive = receiveMessage orElse receiveReply orElse receiveOther
 
   /*
@@ -265,7 +266,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     }
   }
 
-  // Returns actorRef of BLockRequestor Actor, also has depedency injection
+  // Returns actorRef of BlockRequestor Actor, also has depedency injection
   // logic
   def createBlockRequestor(protocol: ActorRef, index: Int, size: Int): ActorRef = {
     injectOptional [ActorRef](BlockRequestorId) getOrElse {

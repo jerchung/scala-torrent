@@ -13,5 +13,6 @@ object BindingKeys {
   object ParentId extends BindingId
   object TcpId extends BindingId
   object PieceChooserId extends BindingId
+  object BlockRequestorId extends BindingId
 
 }

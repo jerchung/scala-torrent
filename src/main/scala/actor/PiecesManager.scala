@@ -42,7 +42,7 @@ object PiecesManager {
 
   /*
    * Actor in charge of choosing a random piece that's rare for a specific
-   * peer that has sent a PeerM.Ready message to PiecesManager.  Sends a
+   * peer that has sent a PeerM.ReadyForPiece message to PiecesManager.  Sends a
    * ChosenPiece message to the PiecesManager upon completion, then gets ended
    */
   class PieceChooser(peer: ActorRef) extends Actor { this: Parent =>
@@ -112,7 +112,7 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
   var piecesMap = Map[Int, PieceInfo]()
 
   // Map of pieces that currently choked peers were downloading
-  var chokedPieces = Map[Int, ActorRef]()
+  var chokedPeers = Map[Int, ActorRef]()
 
   // Holds which pieces are done
   var completedPieces = BitSet()
@@ -132,20 +132,21 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
 
     // Message sent from pieceChooser with valid index
     case ChosenPiece(idx, peer, possibles) if (idx >= 0) =>
-      val size = pieceSize min (totalSize - (pieceSize * idx))
 
       // If somehow this piece was already chosen while the piece chooser
       // actor was working, we remove the idx from the possibles and tell it to
-      // rechoose.  Otherwise send chosen piece to peer and end the choosing
-      // actor
-      if (!(completedPieces | requestedPieces).contains(idx)) {
-        chokedPieces.get(idx) map { _ ! PeerM.ClearPiece }
-        chokedPieces -= idx
+      // rechoose.  Otherwise send chosen piece to peer and if a currently choked
+      // peer had been downloading that piece tell it to clear that piece and
+      // end the choosing actor
+      if ((completedPieces | requestedPieces).contains(idx)) {
+        sender ! ChoosePiece(possibles - idx, piecesSet)
+      } else {
+        val size = pieceSize min (totalSize - (pieceSize * idx))
+        chokedPeers.get(idx) map { _ ! PeerM.ClearPiece }
+        chokedPeers -= idx
         peer ! PeerM.DownloadPiece(idx, size)
         requestedPieces += idx
         sender ! PoisonPill
-      } else {
-        sender ! ChoosePiece(possibles - idx, piecesSet)
       }
 
     // Sent from PieceChooser with invalid index
@@ -168,10 +169,12 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
     // Message is forwarded from TorrentClient, so original peer ActorRef is
     // retained
     case PeerM.ChokedOnPiece(idx) =>
-      chokedPieces += (idx -> sender)
+      chokedPeers += (idx -> sender)
+      requestedPieces -= idx
 
     case PeerM.Resume(idx) =>
-      chokedPieces -= idx
+      chokedPeers -= idx
+      requestedPieces += idx
 
     // Peer is connected, send a bitfield message
     case msg: PeerM.Connected =>

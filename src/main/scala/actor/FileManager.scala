@@ -78,22 +78,32 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
 
   // Last piece may not be the same size as the others.
   // Create pieces based on index, hash, and size
-  val pieces: Array[Piece] = {
-    var off, idx = 0
-    val pieceHashIterator = piecesHash.grouped(20)
-    val pieces = new mutable.ArrayBuffer[Piece]
-    while (!pieceHashIterator.isEmpty) {
-      val hash = pieceHashIterator.next
-      val piece =
-        if (pieceHashIterator.hasNext)
-          new UnfinishedPiece(idx, idx * pieceSize, pieceSize, hash, diskIO)
-        else
-          new UnfinishedPiece(idx, idx * pieceSize, totalSize - off, hash, diskIO)
-      pieces += piece
-      off += pieceSize
-      idx += 1
+  val pieces: Vector[Piece] = {
+    val pieceHashGrouped = piecesHash.grouped(20).toList
+
+    @tailrec
+    def getPieces(
+        grouped: List[ByteString],
+        pieces: Vector[Piece],
+        offset: Int,
+        index: Int): Vector[Piece] = {
+      if (grouped.isEmpty) {
+        pieces
+      } else {
+        // Different piece constructor args depending if it's last element
+        // or not
+        val piece = grouped match {
+          case hash :: Nil =>
+            UnfinishedPiece(idx, idx * pieceSize, totalSize - offset, diskIO)
+          case hash :: tail =>
+            UnfinishedPiece(idx, idx * pieceSize, pieceSize, hash, diskIO)
+        }
+        getPieces(grouped.tail, pieces :+ piece, offset + pieceSize, index + 1)
+      }
     }
-    pieces.toArray
+
+    getPieces(pieceHashGrouped, Vector[Piece](), 0, 0)
+
   }
 
   def receive = {
