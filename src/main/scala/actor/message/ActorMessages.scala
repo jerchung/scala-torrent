@@ -47,7 +47,7 @@ object BT {
   // corresponding ByteString of the int with appropriate leading 0s
   // Works for multiple nums of the same size
   // Don't use ByteBuffer since I need speed.
-  def byteStringify(size: Int, nums: Int*): ByteString = {
+  private def byteStringify(size: Int, nums: Int*): ByteString = {
 
     @tailrec
     def byteHelper1(nums: Seq[Int], bytes: ByteString): ByteString = {
@@ -76,31 +76,31 @@ object BT {
 
   // Messages sent *TO* TorrentProtocol actor
   sealed trait Message {
-    def toBytes: ByteString
+    def toByteString: ByteString
   }
 
   case object KeepAlive extends Message {
-    lazy val toBytes = ByteString(0, 0, 0, 0)
+    lazy val toByteString = ByteString(0, 0, 0, 0)
   }
 
   case object Choke extends Message {
-    lazy val toBytes = ByteString(0, 0, 0, 1, 0)
+    lazy val toByteString = ByteString(0, 0, 0, 1, 0)
   }
 
   case object Unchoke extends Message {
-    lazy val toBytes = ByteString(0, 0, 0, 1, 1)
+    lazy val toByteString = ByteString(0, 0, 0, 1, 1)
   }
 
   case object Interested extends Message {
-    lazy val toBytes = ByteString(0, 0, 0, 1, 2)
+    lazy val toByteString = ByteString(0, 0, 0, 1, 2)
   }
 
   case object NotInterested extends Message {
-    lazy val toBytes = ByteString(0, 0, 0, 1, 3)
+    lazy val toByteString = ByteString(0, 0, 0, 1, 3)
   }
 
   case class Bitfield(bitfield: BitSet, numPieces: Int) extends Message {
-    lazy val toBytes = {
+    lazy val toByteString = {
       val numBytes = math.ceil(numPieces.toFloat / Constant.ByteSize).toInt
       byteStringify(4, 1 + numBytes) ++ ByteString(5) ++
         bitfield.toByteString(numBytes)
@@ -108,34 +108,33 @@ object BT {
   }
 
   case class Have(index: Int) extends Message {
-    lazy val toBytes = ByteString(0, 0, 0, 5, 4) ++ byteStringify(4, index)
+    lazy val toByteString = ByteString(0, 0, 0, 5, 4) ++ byteStringify(4, index)
   }
 
   case class Request(index: Int, offset: Int, length: Int) extends Message {
-    lazy val toBytes =
+    lazy val toByteString =
       ByteString(0, 0, 0, 13, 6) ++ byteStringify(4, index, offset, length)
   }
 
   case class Piece(index: Int, offset: Int, block: ByteString) extends Message {
-    lazy val toBytes =
+    lazy val toByteString =
       byteStringify(4, 9 + block.length) ++ ByteString(7) ++
         byteStringify(4, index, offset) ++ block
   }
 
   case class Cancel(index: Int, offset: Int, length: Int) extends Message {
-    lazy val toBytes =
+    lazy val toByteString =
       ByteString(0, 0, 0, 13, 8) ++ byteStringify(4, index, offset, length)
   }
 
   case class Port(port: Int) extends Message {
-    lazy val toBytes = ByteString(0, 0, 0, 3, 9) ++ byteStringify(2, port)
+    lazy val toByteString = ByteString(0, 0, 0, 3, 9) ++ byteStringify(2, port)
   }
 
   case class Handshake(infoHash: ByteString, peerId: ByteString) extends Message {
-    lazy val toBytes = {
-      val reserved = ByteString(0, 0, 0, 0, 0, 0, 0, 0)
+    private lazy val reserved = ByteString(0, 0, 0, 0, 0, 0, 0, 0)
+    lazy val toByteString =
       ByteString(19) ++ protocol ++ reserved ++ infoHash ++ peerId
-    }
   }
 
   // Messages sent *FROM* TorrentProtocol actor

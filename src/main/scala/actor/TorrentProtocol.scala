@@ -39,7 +39,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor { this: Parent =>
   // Create ByteString based off message type and send to tcp connection
   // TODO - BITFIELD
   def handleMessage(msg: BT.Message) = {
-    connection ! Tcp.Write(msg.toBytes)
+    connection ! Tcp.Write(msg.toByteString)
   }
 
   // https://wiki.theory.org/BitTorrentSpecification
