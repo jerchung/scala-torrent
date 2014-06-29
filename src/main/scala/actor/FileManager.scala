@@ -98,8 +98,8 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
       fulfillRequests(idx, block)
 
     case Write(idx, off, block) =>
-      pieces(idx) match {
-        case p: UnfinishedPiece => insertBlockAndReport(p, off, block, sender)
+      pieces(idx).state match {
+        case Unfinished => insertBlockAndReport(p, off, block, sender)
         case _ =>
       }
   }
