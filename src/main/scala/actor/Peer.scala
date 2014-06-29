@@ -76,9 +76,9 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     peerId match {
       case Some(id) =>
         protocol ! BT.Handshake(infoHash, id)
-        context.become(initiatedHandshake)
+        context.become(initiatedHandshake(infoHash, id))
       case None =>
-        context.become(waitingForHandshake)
+        context.become(waitingForHandshake(infoHash))
     }
   }
 
@@ -87,8 +87,8 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
   }
 
 
-  def waitingForHandshake: Receive = {
-    case BT.HandshakeR(infoHash, peerId) if (infoHash == this.infoHash) =>
+  def waitingForHandshake(testInfoHash: ByteString): Receive = {
+    case BT.HandshakeR(infoHash, peerId) if (infoHash == testInfoHash) =>
       protocol ! BT.Handshake(infoHash, ownId)
       router ! PeerM.Connected(peerId)
       this.peerId = Some(peerId)
@@ -98,9 +98,9 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     case _ => context stop self
   }
 
-  def initiatedHandshake: Receive = {
+  def initiatedHandshake(testInfoHash:ByteString, testId: ByteString): Receive = {
     case BT.HandshakeR(infoHash, peerId)
-        if (infoHash == this.infoHash && peerId == this.peerId.get) =>
+        if (infoHash == testInfoHash && peerId == testId) =>
       router ! PeerM.Connected(peerId)
       heartbeat()
       context.become(acceptBitfield)

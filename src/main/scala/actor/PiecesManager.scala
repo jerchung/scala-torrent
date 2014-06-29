@@ -20,10 +20,9 @@ object PiecesManager {
     Props(new PiecesManager(numPieces, pieceSize, totalSize) with ProdParent)
   }
 
-  case class PieceInfo(index: Int, var count: Int)
-      extends Ordered[PieceInfo] {
-    def compare(pieceCount: PieceInfo): Int = {
-      count.compare(pieceCount.count)
+  case class PieceInfo(index: Int, var count: Int) extends Ordered[PieceInfo] {
+    def compare(that: PieceInfo): Int = {
+      count.compare(that.count)
     }
 
     override def hashCode(): Int = {
@@ -55,34 +54,38 @@ object PiecesManager {
         parent ! ChosenPiece(idx, peer, possibles)
     }
 
-    /* Perform the jittering of choosing from k of the rarest pieces whose
+    /*
+     * Perform the jittering of choosing from k of the rarest pieces whose
      * indexes are contained in possibles
      * Return the index of the chosen piece
      * Return -1 if no possibilities to choose
      */
     def rarest(possibles: BitSet, pieces: List[PieceInfo], k: Int): Int = {
-      val availablePiecesBuffer = mutable.ArrayBuffer[Int]()
 
       @tailrec
-      def populateRarePieces(pieces: List[PieceInfo], count: Int): Unit = {
-        if (count <= k && !pieces.isEmpty) {
+      def getRarePieces(
+          chosen: Vector[Int](),
+          pieces:List[PieceInfo],
+          count: Int): Vector[Int] = {
+        if (count >= k || pieces.isEmpty) {
+          chosen
+        } else {
           val pieceInfo = pieces.head
-          if (possibles contains pieceInfo.index) {
-            availablePiecesBuffer += pieceInfo.index
-          }
-          populateRarePieces(pieces.tail, count + 1)
+          val newChosen =
+            if (possibles contains pieceInfo.index)
+              chosen :+ pieceInfo.index
+            else
+              chosen
+          getRarePieces(newChosen, pieces.tail, count + 1)
         }
       }
 
-      populateRarePieces(pieces, 0)
-      val chosenPieces = availablePiecesBuffer.toArray
-      if (chosenPieces.isEmpty) {
+      val rareIndexes = getRarePieces(Vector[Int](), pieces, 0)
+      if (rareIndexes.isEmpty) {
         -1
       } else {
-        val index = chosenPieces(
-          (new Random).nextInt(
-            k min chosenPieces.size))
-        chosenPieces(index)
+        val jitteredIndex = Random.nextInt(k min rareIndexes.size)
+        rareIndexes(jitteredIndex)
       }
     }
 
@@ -111,7 +114,7 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
   // Map of piece index -> pieceInfo to provide access to pieces
   var piecesMap = Map[Int, PieceInfo]()
 
-  // Map of pieces that currently choked peers were downloading
+  // Map of pieces that currently choked peers were downloading (index -> ref)
   var chokedPeers = Map[Int, ActorRef]()
 
   // Holds which pieces are done
@@ -138,8 +141,9 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
       // rechoose.  Otherwise send chosen piece to peer and if a currently choked
       // peer had been downloading that piece tell it to clear that piece and
       // end the choosing actor
-      if ((completedPieces | requestedPieces).contains(idx)) {
-        sender ! ChoosePiece(possibles - idx, piecesSet)
+      if (completedPieces.contains(idx) || requestedPieces.contains(idx)) {
+        val newPossibles = (possibles - idx) &~ (completedPieces | requestedPieces)
+        sender ! ChoosePiece(newPossibles, piecesSet)
       } else {
         val size = pieceSize min (totalSize - (pieceSize * idx))
         chokedPeers.get(idx) map { _ ! PeerM.ClearPiece }

@@ -14,5 +14,5 @@ object BindingKeys {
   object TcpId extends BindingId
   object PieceChooserId extends BindingId
   object BlockRequestorId extends BindingId
-
+  object FileWorkerId extends BindingId
 }

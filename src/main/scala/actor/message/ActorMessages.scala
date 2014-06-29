@@ -71,7 +71,6 @@ object BT {
     }
 
     byteHelper1(nums, ByteString())
-
   }
 
   // Messages sent *TO* TorrentProtocol actor

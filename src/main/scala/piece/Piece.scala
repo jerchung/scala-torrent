@@ -5,29 +5,18 @@ import org.jerchung.torrent.diskIO.DiskIO
 import org.jerchung.torrent.Constant
 import java.nio.ByteBuffer
 
-trait Piece {
-  def index: Int
-  def offset: Int
-  def size: Int
-  def hash: ByteString
-}
+sealed trait PieceState
+object InDisk extends PieceState
+object Fetching extends PieceState
+object Unfinished extends PieceState
 
-case class InDiskPiece(
-    index: Int,
-    offset: Int,
-    size: Int,
-    hash: ByteString,
-    reader: DiskIO)
-    extends Piece {
+case class Piece(
+  index: Int,
+  offset: Int,
+  size: Int,
+  hash: Int,
+  state: PieceState = Unfinished,
+  data: Option[Array[Byte]] = None
+)
 
-  // This call goes to disk and retrieves the data associated with this piece
-  def data: Array[Byte] = {
-    val bytes = ByteBuffer.allocate(size)
-    reader.read(bytes, offset)
-    bytes.array
-  }
-}
-
-case class InvalidPiece(index: Int, offset: Int, size: Int, hash: ByteString) extends Piece
-
-case class InMemPiece(index: Int, offset: Int, size: Int, hash: ByteString, data: Array[Byte]) extends Piece
+case class InMemPiece(data: Array[Byte])

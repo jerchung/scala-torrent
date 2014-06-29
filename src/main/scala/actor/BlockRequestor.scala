@@ -6,8 +6,8 @@ import org.jerchung.torrent.Constant
 import scala.annotation.tailrec
 
 object BlockRequestor {
-  def props(protocol: ActorRef, idx: Int, size: Int): Props = {
-    Props(new BlockRequestor(protocol, idx, size) with ProdParent)
+  def props(protocol: ActorRef, index: Int, size: Int): Props = {
+    Props(new BlockRequestor(protocol, index, size) with ProdParent)
   }
 
   object Message {
@@ -19,9 +19,10 @@ object BlockRequestor {
 
 /*
  * This actor requests blocks from the peer until the piece is completed.  Sends
- * block requests to the protocol
+ * block requests to the protocol.  Index is index of the piece that the
+ * requestor is requesting blocks for
  */
-class BlockRequestor(protocol: ActorRef, idx: Int, size: Int)
+class BlockRequestor(protocol: ActorRef, index: Int, size: Int)
     extends Actor { this: Parent =>
 
   import BlockRequestor.Message._
@@ -48,21 +49,42 @@ class BlockRequestor(protocol: ActorRef, idx: Int, size: Int)
     case Resume =>
       pipeline foreach { off =>
         val requestSize = Constant.BlockSize min (size - off)
-        protocol ! BT.Request(idx, off, requestSize)
+        protocol ! BT.Request(index, off, requestSize)
       }
   }
 
   // Request either up to max requests or until the end of the piece is reached
   // Increment offset as you go and add requested offset to pipeline set
-  @tailrec
-  private def pipelineRequests(maxRequests: Int, count: Int = 0): Unit = {
-    if (count < maxRequests && offset < size) {
-      val requestSize = Constant.BlockSize min (size - offset)
-      protocol ! BT.Request(idx, offset, requestSize)
-      pipeline += offset
-      offset += requestSize
-      pipelineRequests(maxRequests, count + 1)
+  private def pipelineRequests(maxRequests: Int): Unit = {
+
+    @tailrec
+    def pipelineHelper(
+        count: Int,
+        requests: List[BT.Request],
+        pipeline: Set[Int],
+        offset: Int):
+        (List[BT.Request], Set[Int], Int) = {
+      if (count >= maxRequests || offset >= size) {
+        (requests, pipeline, offset)
+      } else {
+        val requestSize = Constant.BlockSize min (size - offset)
+        val request = BT.Request(index, offset, requestSize)
+        pipelineHelper(
+          count + 1,
+          requests :: request,
+          pipeline + offset,
+          offset + requestSize
+        )
+      }
     }
+
+    val (requests, morePipeline, newOffset) =
+      pipelineHelper(0, List[BT.Request](), Set[Int](), offset)
+
+    pipeline += morePipeline
+    offset = newOffset
+    requests foreach { protocol ! _ }
+
   }
 
 }

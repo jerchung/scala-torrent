@@ -12,7 +12,7 @@ import org.jerchung.torrent.actor.message.FM
 
 object SingleFileWorker {
   def props(name: String, pieceSize: Int, size: Int): Props = {
-    Props(new SingleFileWorker(name, pieceSize, size) with ProdParent)
+    Props(new SingleFileWorker(name, pieceSize, size))
   }
 }
 
@@ -25,15 +25,15 @@ class SingleFileWorker(
     name: String,
     pieceSize: Int,
     size: Int)
-    extends Actor
-    with StorageWorker { this: Parent =>
+    extends Actor {
 
   val raf = new RandomAccessFile(name, "rw")
   val fc: FileChannel = raf.getChannel
 
   def receive = {
 
-    // The offset in this is message is the offset within the file
+    // The offset in this is message is the offset within the file this actor
+    // is referencing
     case FW.Read(off, length) =>
       val block = read(off, length)
       sender ! BT.Piece(idx, off, block)
