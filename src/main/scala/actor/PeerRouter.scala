@@ -35,9 +35,12 @@ class PeerRouter(
       peersManager forward msg
 
     // PiecesManager only
-    case msg @ (_: PeerM.Resume | _: PeerM.ReadyForPiece |
-                _:PeerM.ChokedOnPiece | _: PeerM.PieceAvailable |
-                _: PeerM.PieceDone) =>
+    case msg @ (_: PeerM.Resume |
+                _: PeerM.ReadyForPiece |
+                _:PeerM.ChokedOnPiece |
+                _: PeerM.PieceAvailable |
+                _: PeerM.PieceDone |
+                _: PeerM.PieceInvalid) =>
       piecesManager forward msg
 
     // fileManager only

@@ -84,8 +84,8 @@ object PiecesManager {
       if (rareIndexes.isEmpty) {
         -1
       } else {
-        val jitteredIndex = Random.nextInt(k min rareIndexes.size)
-        rareIndexes(jitteredIndex)
+        val randomized = Random.nextInt(k min rareIndexes.size)
+        rareIndexes(randomized)
       }
     }
 
@@ -193,6 +193,8 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
       }
       chooser ! ChoosePiece(possibles, piecesSet)
 
+    case PeerM.PieceInvalid(idx) =>
+      requestedPieces -= idx
   }
 
   def add(piece: PieceInfo): Unit = {

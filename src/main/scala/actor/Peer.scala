@@ -41,6 +41,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     with Stash {
 
   import context.dispatcher
+  import context.system.scheduler
   import BlockRequestor.Message.{ Resume, BlockDoneAndRequestNext }
 
   val MaxRequestPipeline = 5
@@ -83,7 +84,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
   }
 
   override def postStop(): Unit = {
-    peerId map { id => router ! PeerM.Disconnected(id, peerHas) }
+    peerId foreach { router ! PeerM.Disconnected(_, peerHas) }
   }
 
 
@@ -253,7 +254,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
 
       // A part of piece came in due to a request
       case BT.PieceR(idx, off, block) =>
-        peerId map { pid => router ! PeerM.Downloaded(pid, block.length) }
+        peerId map { router ! PeerM.Downloaded(_, block.length) }
         router ! FM.Write(idx, off, block)
         requestor map { _ ! BlockDoneAndRequestNext(off) }
 
@@ -262,6 +263,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
         router ! PeerM.PieceAvailable(Left(idx))
 
       case BT.CancelR(idx, off, len) =>
+
       case _ =>
     }
   }

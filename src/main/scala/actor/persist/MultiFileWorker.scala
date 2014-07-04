@@ -9,11 +9,12 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
-import org.jerchung.torrent.actor.dependency.BindingKeys._
-import org.jerchung.torrent.actor.message.BT
+import org.jerchung.torrent.dependency.BindingKeys._
 import org.jerchung.torrent.actor.message.FM
+import org.jerchung.torrent.actor.message.FW
 import org.jerchung.torrent.TorrentFile
 import scala.annotation.tailrec
+import scala.collection.mutable
 import scala.concurrent._
 import ExecutionContext.Implicits.global
 
@@ -49,7 +50,7 @@ object MultiFileWorker {
       extends Actor {
 
     val numExpected = blockIndexes.size
-    val blocks = new Array[ByteString](numExpected)
+    val blocks = new Array[Array[Byte]](numExpected)
 
     def receive = accum(blockIndexes)
 
@@ -62,7 +63,9 @@ object MultiFileWorker {
         blocks(blockIndex) = block
         val remaining = blockIndexes - sender
         if (remaining.isEmpty) {
-          val combinedBlock = blocks.foldLeft(ByteString()) { _ ++ _ }
+          val combinedBlock = blocks.foldLeft(ArrayBuffer[Byte]()) {
+            (buf, block) => buf ++= block
+          }.toArray
           fileManager ! FW.ReadDone(index, combinedBlock)
           context stop self
         } else {
@@ -92,6 +95,7 @@ object MultiFileWorker {
         val remaining = writers - sender
         if (remaining.isEmpty) {
           fileManager ! FW.WriteDone(index)
+          context stop self
         } else {
           context.become(accum(remaining))
         }
@@ -115,30 +119,33 @@ class MultiFileWorker(files: List[TorrentFile], pieceSize: Int)
     WrappedFileWorker(
       f.path,
       f.size,
-      createFileWorker(f.path, pieceSize, f.length))
+      createFileWorker(f.path, pieceSize, f.length)
+    )
   }
 
   // Msgs sent from fileManager, forwarded to SingleFileWorker
   def receive = {
 
+    // Actually flushes data to disk
     case FW.Read(index, offset, length) =>
       val requestor = sender
       Future {
         val workerJobs = affectedFileJobs(offset, length)
         val blockIndexes = indexWorkers(workerJobs)
-        val accumulator =
-          createReadAccumulator(parent, blockIndexes)
+        val accumulator = createReadAccumulator(parent, blockIndexes)
         workerJobs foreach { wJ =>
           wJ.tell(FW.Read(index, wJ.offset, wJ.length), accumulator)
         }
       }
 
+    // Actually flushes data to disk
     case FW.Write(index, offset, block) =>
       val requestor = sender
       Future {
         val workerJobs = affectedFileJobs(offset, block.size)
-        val workers =
-          workerJobs.foldLeft(Set[ActorRef]()) { (w, wj) => w + wj }
+        val workers = workerJobs.foldLeft(Set[ActorRef]()) { (w, wj) =>
+          w + wj.worker
+        }
         val accumulator = createWriteAccumulator(parent, workers)
         workerJobs.foldLeft(block) { (chunk, wJ) =>
           val (data, remaining) = chunk.splitAt(wJ.length)
@@ -180,10 +187,7 @@ class MultiFileWorker(files: List[TorrentFile], pieceSize: Int)
    * to be read / written.  The jobs contain actorRefs and the amount that should
    * be read from these actorRefs.
    */
-  def affectedFileJobs(
-      offset: Int,
-      length: Int):
-      List[WorkerJob] = {
+  def affectedFileJobs(offset: Int, length: Int): List[WorkerJob] = {
     val targetStart = offset
     val targetStop = targetStart + length
 
@@ -191,8 +195,7 @@ class MultiFileWorker(files: List[TorrentFile], pieceSize: Int)
     def getAffectedFileJobsHelper(
         fileWorkers: List[WrappedFileWorker],
         position: Int,
-        affected: List[WorkerJob]):
-        List[WorkerJob] = {
+        affected: List[WorkerJob]): List[WorkerJob] = {
       fileWorkers match {
         case Nil => affected.reverse
         case fw :: more =>
@@ -203,8 +206,8 @@ class MultiFileWorker(files: List[TorrentFile], pieceSize: Int)
             affected.reverse
           } else {
             val offset = if (targetStart > pos) pos else 0
-            val readLength = (fw.size - offset) min (targetStop - pos)
-            val workerJob = WorkerJob(fw.worker, offset, readLength)
+            val length = (fw.size - offset) min (targetStop - pos)
+            val workerJob = WorkerJob(fw.worker, offset, length)
             getAffectedFiles(more, end, workerJob :: affected)
           }
       }

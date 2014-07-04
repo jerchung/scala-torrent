@@ -9,6 +9,10 @@ import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import org.jerchung.torrent.actor.message.BT
 import org.jerchung.torrent.actor.message.FM
+import org.jerchung.torrent.actor.message.FW
+import scala.concurrent._
+import scala.util.Failure
+import scala.util.Success
 
 object SingleFileWorker {
   def props(name: String, pieceSize: Int, size: Int): Props = {
@@ -28,29 +32,33 @@ class SingleFileWorker(
     extends Actor {
 
   val raf = new RandomAccessFile(name, "rw")
-  val fc: FileChannel = raf.getChannel
 
   def receive = {
 
     // The offset in this is message is the offset within the file this actor
     // is referencing
     case FW.Read(off, length) =>
-      val block = read(off, length)
-      sender ! BT.Piece(idx, off, block)
+      val requestor = sender
+      val fc = raf.getChannel
+      val blockF: Future[Array[Byte]] = Future { read(fc, off, length) }
+      blockF foreach { block => requestor ! FW.ReadDone(idx, block) }
 
     case FM.Write(idx, off, block) =>
-      write(idx, off, block)
+      val requestor = sender
+      val fc = raf.getChannel
+      val writeF = Future { write(fc, offset, block) }
+      writeF foreach { requestor ! FW.WriteDone(idx) }
 
   }
 
-  override def read(offset: Int, length: Int): ByteString = {
+  def read(fc: FileChannel, offset: Int, length: Int): Array[Byte] = {
     val buffer = ByteBuffer.allocate(length)
     fc.position(offset)
     fc.read(buffer)
-    ByteString(buffer)
+    buffer.array
   }
 
-  override def write(offset: Int, src: ByteString): Int = {
+  def write(offset: Int, src: ByteString): Int = {
     val buffer = src.asByteBuffer
     fc.position(offset)
     fc.write(buffer)

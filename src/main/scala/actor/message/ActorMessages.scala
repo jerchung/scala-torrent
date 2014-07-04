@@ -38,6 +38,14 @@ object FM {
   case class Write(index: Int, offset: Int, block: ByteString)
 }
 
+// FileWorker
+object FW {
+  case class Read(index: Int, offset: Int, length: Int)
+  case class Write(index: Int, offset: Int, block: ByteString)
+  case class ReadDone(index: Int, block: Array[Byte])
+  case class WriteDone(index: Int)
+}
+
 // Peer Wire TCP Protocol
 object BT {
 
@@ -116,9 +124,8 @@ object BT {
   }
 
   case class Piece(index: Int, offset: Int, block: ByteString) extends Message {
-    lazy val toByteString =
-      byteStringify(4, 9 + block.length) ++ ByteString(7) ++
-        byteStringify(4, index, offset) ++ block
+    lazy val toByteString = byteStringify(4, 9 + block.length) ++
+      ByteString(7) ++ byteStringify(4, index, offset) ++ block
   }
 
   case class Cancel(index: Int, offset: Int, length: Int) extends Message {
@@ -132,8 +139,8 @@ object BT {
 
   case class Handshake(infoHash: ByteString, peerId: ByteString) extends Message {
     private lazy val reserved = ByteString(0, 0, 0, 0, 0, 0, 0, 0)
-    lazy val toByteString =
-      ByteString(19) ++ protocol ++ reserved ++ infoHash ++ peerId
+    lazy val toByteString = ByteString(19) ++ protocol ++ reserved ++
+      infoHash ++ peerId
   }
 
   // Messages sent *FROM* TorrentProtocol actor
