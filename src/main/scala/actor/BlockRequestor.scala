@@ -1,19 +1,19 @@
 package org.jerchung.torrent.actor
 
 import akka.actor.{ Actor, ActorRef, Props, Cancellable }
+import com.escalatesoft.subcut.inject._
 import org.jerchung.torrent.actor.message.BT
 import org.jerchung.torrent.Constant
+import org.jerchung.torrent.dependency.BindingKeys._
 import scala.annotation.tailrec
 
 object BlockRequestor {
-  def props(protocol: ActorRef, index: Int, size: Int): Props = {
-    Props(new BlockRequestor(protocol, index, size) with ProdParent)
+  def props(index: Int, size: Int): Props = {
+    Props(new BlockRequestor(index, size) with ProdParent)
   }
 
-  object Message {
-    case object Resume
-    case class BlockDoneAndRequestNext(offset: Int)
-  }
+  case object Resume
+  case class BlockDoneAndRequestNext(offset: Int)
 
 }
 
@@ -22,14 +22,15 @@ object BlockRequestor {
  * block requests to the protocol.  Index is index of the piece that the
  * requestor is requesting blocks for
  */
-class BlockRequestor(protocol: ActorRef, index: Int, size: Int)
-    extends Actor { this: Parent =>
+class BlockRequestor(index: Int, size: Int) extends Actor with AutoInjectable {
 
-  import BlockRequestor.Message._
+  import BlockRequestor._
 
   val MaxRequestPipeline = 5
   var offset = 0
   var pipeline = Set[Int]()
+
+  val parent = injectOptional [ActorRef](ParentId) getOrElse { context.parent }
 
   // Want to fill up pipeline with requests at initialization
   override def preStart(): Unit = {
@@ -44,13 +45,6 @@ class BlockRequestor(protocol: ActorRef, index: Int, size: Int)
       pipeline -= off
       pipelineRequests(1)
 
-    // Re-request any straggling blocks which were not actually requested due
-    // to peer choking
-    case Resume =>
-      pipeline foreach { off =>
-        val requestSize = Constant.BlockSize min (size - off)
-        protocol ! BT.Request(index, off, requestSize)
-      }
   }
 
   // Request either up to max requests or until the end of the piece is reached
@@ -60,30 +54,26 @@ class BlockRequestor(protocol: ActorRef, index: Int, size: Int)
     @tailrec
     def pipelineHelper(
         count: Int,
-        requests: List[BT.Request],
         pipeline: Set[Int],
         offset: Int):
-        (List[BT.Request], Set[Int], Int) = {
+        (Set[Int], Int) = {
       if (count >= maxRequests || offset >= size) {
-        (requests, pipeline, offset)
+        (pipeline, offset)
       } else {
         val requestSize = Constant.BlockSize min (size - offset)
         val request = BT.Request(index, offset, requestSize)
+        parent ! request
         pipelineHelper(
           count + 1,
-          requests :: request,
           pipeline + offset,
           offset + requestSize
         )
       }
     }
 
-    val (requests, morePipeline, newOffset) =
-      pipelineHelper(0, List[BT.Request](), Set[Int](), offset)
-
-    pipeline += morePipeline
+    val (morePipeline, newOffset) = pipelineHelper(0, Set[Int](), offset)
+    pipeline ++= morePipeline
     offset = newOffset
-    requests foreach { protocol ! _ }
 
   }
 

@@ -41,8 +41,7 @@ object PeersManager {
 class PeersManager extends Actor { this: Parent with ScheduleProvider =>
 
   import context.dispatcher
-  import PeersManager.PeerConnection
-  import PeersManager.{ Unchoke, OptimisticUnchoke }
+  import PeersManager._
 
   val unchokeFrequency: FiniteDuration = 10 seconds
   val optimisticUnchokeFrequency: FiniteDuration = 30 seconds
@@ -117,12 +116,9 @@ class PeersManager extends Actor { this: Parent with ScheduleProvider =>
     }
   }
 
-  /*
-   * Put in future for async
-   */
   def scheduleUnchoke(): Unit = {
     scheduler.scheduleOnce(unchokeFrequency) {
-      Future { unchoke(peers, currentUnchokedPeers, numUnchokedPeers) }
+      unchoke(peers, currentUnchokedPeers, numUnchokedPeers)
     }
   }
 

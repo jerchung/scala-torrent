@@ -5,6 +5,8 @@ import akka.util.ByteString
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import org.jerchung.torrent.piece._
+import org.jerchung.torrent.actor.message.FM
+import org.jerchung.torrent.actor.message.FW
 
 object PieceWorker {
   def props(fileWorker: ActorRef, index: Int, piece: Piece): Props = {
@@ -24,23 +26,25 @@ object PieceWorker {
   )
 }
 
-// In charge of inserting blocks into pieces in a thread-safe manner
+// In charge of inserting parts of pieces in a thread-safe manner
 class PieceWorker(
-  fileWorker: ActorRef,
-  index: Int,
-  piece: Piece)
-  extends Actor {
+    fileWorker: ActorRef,
+    index: Int,
+    piece: Piece)
+    extends Actor {
+
+  import PieceWorker._
 
   val totalOffset = piece.offset
   val pieceSize = piece.size
   val hash = piece.hash
 
-  lazy val buffer = ByteBuffer.allocate(pieceSize)
+  lazy val bytes = ByteBuffer.allocate(pieceSize)
   private var bytesWritten = 0
   private val md = MessageDigest.getInstance("SHA-1")
 
   def receive = {
-    case Read(idx, off, len) =>
+    case FM.Read(idx, off, len) =>
       fileWorker forward FW.Read(idx, totalOffset, pieceSize)
 
     case BlockWrite(off, block, peer) =>
@@ -53,13 +57,16 @@ class PieceWorker(
         else
           Unfinished
       val dataOption = state match {
-        case Done => Some(buffer.array)
+        case Done =>
+          val data = new Array[Byte](pieceSize)
+          bytes.array.copyToArray(data)
+          Some(data)
         case _ => None
       }
       sender ! BlockWriteDone(index, totalOffset, state, peer, dataOption)
 
     case ClearPieceData =>
-      buffer.clear()
+      bytes.clear()
       bytesWritten = 0
   }
 
@@ -67,8 +74,8 @@ class PieceWorker(
   def insertBlock(offset: Int, block: ByteString): Unit = {
     val byteArray = block.toArray
     val numBytes = byteArray.length
-    buffer.position(offset)
-    buffer.put(byteArray)
+    bytes.position(offset)
+    bytes.put(byteArray)
     bytesWritten += numBytes
   }
 
@@ -78,7 +85,8 @@ class PieceWorker(
 
   def hashMatches(): Boolean = {
     val sha1Hash = {
-      md.update(buffer)
+      bytes.position(0)
+      md.update(bytes)
       md.digest
     }
     sha1Hash.sameElements(hash)

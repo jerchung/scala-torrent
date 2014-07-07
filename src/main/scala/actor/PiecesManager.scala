@@ -17,7 +17,7 @@ import scala.util.Random
 object PiecesManager {
 
   def props(numPieces: Int, pieceSize: Int, totalSize: Int): Props = {
-    Props(new PiecesManager(numPieces, pieceSize, totalSize) with ProdParent)
+    Props(new PiecesManager(numPieces, pieceSize, totalSize))
   }
 
   case class PieceInfo(index: Int, var count: Int) extends Ordered[PieceInfo] {
@@ -64,7 +64,7 @@ object PiecesManager {
 
       @tailrec
       def getRarePieces(
-          chosen: Vector[Int](),
+          chosen: Vector[Int],
           pieces:List[PieceInfo],
           count: Int): Vector[Int] = {
         if (count >= k || pieces.isEmpty) {
@@ -104,7 +104,8 @@ object PiecesManager {
  * will be resetted.
  */
 class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
-    extends Actor { this: Parent =>
+    extends Actor
+    with AutoInjectable {
 
   import PiecesManager._
 

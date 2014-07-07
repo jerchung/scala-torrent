@@ -15,4 +15,6 @@ object BindingKeys {
   object BlockRequestorId extends BindingId
   object FileWorkerId extends BindingId
   object PieceWorkerId extends BindingId
+  object ReadAccumulatorId extends BindingId
+  object WriteAccumulatorId extends BindingId
 }

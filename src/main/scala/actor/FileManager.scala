@@ -15,10 +15,11 @@ import org.jerchung.torrent.actor.message.PeerM
 import org.jerchung.torrent.actor.persist.MultiFileWorker
 import org.jerchung.torrent.actor.persist.SingleFileWorker
 import org.jerchung.torrent.actor.persist.PieceWorker
-import org.jerchung.torrent.actor.dependency.BindingKeys._
+import org.jerchung.torrent.dependency.BindingKeys._
 import org.jerchung.torrent.piece._
 import org.jerchung.torrent.Torrent
-import org.jerchung.torrent.{ Single, Multiple }
+import org.jerchung.torrent.{ Single, Multi }
+import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.concurrent._
 import scala.concurrent.duration._
@@ -53,7 +54,6 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
   import FileManager._
   import PieceWorker._
   import context.dispatcher
-  import context.system.scheduler
 
   val FileWriteTimeout = 5 minutes
 
@@ -65,15 +65,15 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
 
   // Cache map for quick piece access (pieceIndex -> Piece)
   // is LRU since it's not feasible to store ALL pieces in memory
-  val cachedPieces = new LruMap[Int, InMemPiece](10)
+  val cachedPieces = new LruMap[Int, Array[Byte]](10)
 
   // Another cache for pieces in the process of being written to disk
   // Pieces are removed from here once they are
   // completely written to disk
-  var flushingPieces = Map[Int, InMemPiece]()
+  var flushingPieces = Map[Int, Array[Byte]]()
 
   // pieceIndex -> BlockRequest
-  var queuedRequests = Map[Int, BlockRequest]()
+  var queuedRequests = Map[Int, Set[BlockRequest]]()
                        .withDefaultValue(Set[BlockRequest]())
 
   // Actor that takes care of reading / writing from disk
@@ -94,11 +94,11 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
   val pieceWorkers: Array[ActorRef] = {
     val pieceHashesGrouped = piecesHash.grouped(20).toList
 
-    pieceHashesGrouped.foldLeft((mutable.ArrayBuffer[ActorRef](), off, idx)) {
+    pieceHashesGrouped.foldLeft((mutable.ArrayBuffer[ActorRef](), 0, 0)) {
       case ((pieceWorkers, offset, idx), hash) =>
         val size = pieceSize min totalSize - offset
         val piece = Piece(idx, idx * pieceSize, size, hash)
-        val pieceWorker = createPieceWorker(idx, piece)
+        val pieceWorker = createPieceWorker(fileWorker, idx, piece)
         (pieceWorkers += pieceWorker, offset + size, idx + 1)
     }._1.toArray
   }
@@ -109,13 +109,13 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
   def receive = {
 
     // Piece is already cached :)
-    case Read(idx, off, length) if (cachedPieces contains idx ||
-                                    flushingPieces contains idx) =>
+    case Read(idx, off, length) if ((cachedPieces contains idx) ||
+                                    (flushingPieces contains idx)) =>
       val peer = sender
-      val data = cachedPieces.getOrElse(idx, flushingPieces(idx)).data
+      val data: Array[Byte] = cachedPieces.getOrElse(idx, flushingPieces(idx))
       Future {
         val block = ByteString.fromArray(data, off, length)
-        peer ! BT.Piece(index, off, block)
+        peer ! BT.Piece(idx, off, block)
       }
 
     // Piece is not cached :(
@@ -133,7 +133,7 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
 
     case FW.ReadDone(idx, block) =>
       pieceStates(idx) = Disk
-      cachedPieces += (idx -> InMemPiece(block))
+      cachedPieces += (idx -> block)
       val requests = queuedRequests(idx)
       queuedRequests -= idx
       Future { fulfillRequests(idx, block, requests) }
@@ -155,9 +155,8 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
           pieceStates(idx) = Done
           dataOption foreach { data =>
             writePiece(idx, totalOffset, data)
-            val p = InMemPiece(data)
-            flushingPieces += (idx -> p)
-            cachedPieces += (idx -> p)
+            flushingPieces += (idx -> data)
+            cachedPieces += (idx -> data)
           }
           peer ! PeerM.PieceDone(idx)
           sender ! ClearPieceData
@@ -178,26 +177,27 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
     implicit val timeout = Timeout(FileWriteTimeout)
     val numTries = 3
 
+    @tailrec
     def tryWrite(count: Int): Unit = {
       if (count < numTries) {
         val writeF = (fileWorker ? FW.Write(index, offset, block))
-                     .mapto[FW.WriteDone]
+                     .mapTo[FW.WriteDone]
         writeF onComplete {
           case Success(writeDoneMsg) => self ! writeDoneMsg
           case Failure(e) => tryWrite(count + 1)
         }
       } else {
-        self ! akka.status.Failure("Can't Write")
+        self ! akka.actor.Status.Failure("Can't Write")
       }
     }
 
-    retryHelper(0)
+    tryWrite(0)
   }
 
   // Update queued requests by adding to existing set of requests
   def queueRequest(peer: ActorRef, index: Int, offset: Int, length: Int): Unit = {
     val request = BlockRequest(peer, offset, length)
-    queuedRequests += (index -> queuedRequests(index) + request)
+    queuedRequests += (index -> (queuedRequests(index) + request))
   }
 
   // Fulfill all the queued requests for that particular piece
@@ -211,9 +211,9 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
     }
   }
 
-  def createPieceWorker(index: Int, piece: Piece): ActorRef = {
+  def createPieceWorker(worker: ActorRef, index: Int, piece: Piece): ActorRef = {
     injectOptional [ActorRef](PieceWorkerId) getOrElse {
-      context.actorOf(PieceWorker.props(index, piece))
+      context.actorOf(PieceWorker.props(worker, index, piece))
     }
   }
 

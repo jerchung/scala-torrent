@@ -64,15 +64,6 @@ class TorrentClient(fileName: String) extends Actor with AutoInjectable {
     ))
   }
 
-  val peerRouter = injectOptional [ActorRef](PeerRouterId) getOrElse {
-    context.actorOf(
-      PeerRouter.props(
-        fileManager,
-        peersManager,
-        piecesManager
-    ))
-  }
-
   val parent = injectOptional [ActorRef](ParentId) getOrElse {
     context.parent
   }
@@ -90,6 +81,11 @@ class TorrentClient(fileName: String) extends Actor with AutoInjectable {
       val ip = remote.getHostString
       val port = remote.getPort
       val info = PeerInfo(peerId, Constant.ID.toByteString, torrent.infoHash, ip, port)
+      val peerRouter = context.actorOf(PeerRouter.props(
+        fileManager,
+        peersManager,
+        piecesManager
+      ))
       val protocolProp = TorrentProtocol.props(connection)
       context.actorOf(Peer.props(info, protocolProp, peerRouter))
 

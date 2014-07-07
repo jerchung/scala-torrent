@@ -37,7 +37,7 @@ class PeerRouter(
     // PiecesManager only
     case msg @ (_: PeerM.Resume |
                 _: PeerM.ReadyForPiece |
-                _:PeerM.ChokedOnPiece |
+                _: PeerM.ChokedOnPiece |
                 _: PeerM.PieceAvailable |
                 _: PeerM.PieceDone |
                 _: PeerM.PieceInvalid) =>

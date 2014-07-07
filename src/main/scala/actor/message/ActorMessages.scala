@@ -5,6 +5,8 @@ import akka.util.ByteString
 import scala.annotation.tailrec
 import scala.collection.BitSet
 import java.net.InetSocketAddress
+import org.jerchung.torrent.Constant
+import org.jerchung.torrent.Convert._
 
 // Tracker Client
 object TrackerM {
@@ -41,7 +43,7 @@ object FM {
 // FileWorker
 object FW {
   case class Read(index: Int, offset: Int, length: Int)
-  case class Write(index: Int, offset: Int, block: ByteString)
+  case class Write(index: Int, offset: Int, block: Array[Byte])
   case class ReadDone(index: Int, block: Array[Byte])
   case class WriteDone(index: Int)
 }
@@ -72,7 +74,7 @@ object BT {
     def byteHelper2(n: Int, idx: Int, chunk: ByteString): ByteString = {
       if (idx < size) {
         val shift = Constant.ByteSize * (size - 1 - idx)
-        byteHelper2(n, idx + 1, chunk :+  ((n >> shift) & 0xFF).toByte)
+        byteHelper2(n, idx + 1, chunk :+ ((n >> shift) & 0xFF).toByte)
       } else {
         chunk
       }

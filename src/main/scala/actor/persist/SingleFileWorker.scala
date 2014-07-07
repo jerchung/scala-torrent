@@ -2,6 +2,7 @@ package org.jerchung.torrent.actor.persist
 
 import akka.actor.Actor
 import akka.actor.ActorRef
+import akka.actor.Props
 import akka.util.ByteString
 import java.io.RandomAccessFile
 import java.io.IOException
@@ -11,6 +12,7 @@ import org.jerchung.torrent.actor.message.BT
 import org.jerchung.torrent.actor.message.FM
 import org.jerchung.torrent.actor.message.FW
 import scala.concurrent._
+import ExecutionContext.Implicits.global
 import scala.util.Failure
 import scala.util.Success
 
@@ -32,36 +34,31 @@ class SingleFileWorker(
     extends Actor {
 
   val raf = new RandomAccessFile(name, "rw")
+  val fc = raf.getChannel
 
   def receive = {
 
     // The offset in this is message is the offset within the file this actor
     // is referencing
-    case FW.Read(off, length) =>
-      val requestor = sender
-      val fc = raf.getChannel
-      val blockF: Future[Array[Byte]] = Future { read(fc, off, length) }
-      blockF foreach { block => requestor ! FW.ReadDone(idx, block) }
+    case FW.Read(idx, off, length) =>
+      val block = read(off, length)
+      sender ! FW.ReadDone(idx, block)
 
     case FM.Write(idx, off, block) =>
-      val requestor = sender
-      val fc = raf.getChannel
-      val writeF = Future { write(fc, offset, block) }
-      writeF foreach { requestor ! FW.WriteDone(idx) }
+      val write = write(off, block)
+      sender ! FW.WriteDone(idx)
 
   }
 
-  def read(fc: FileChannel, offset: Int, length: Int): Array[Byte] = {
+  def read(offset: Int, length: Int): Array[Byte] = {
     val buffer = ByteBuffer.allocate(length)
-    fc.position(offset)
-    fc.read(buffer)
+    fc.read(buffer, offset)
     buffer.array
   }
 
   def write(offset: Int, src: ByteString): Int = {
     val buffer = src.asByteBuffer
-    fc.position(offset)
-    fc.write(buffer)
+    fc.write(buffer, offset)
   }
 
 }

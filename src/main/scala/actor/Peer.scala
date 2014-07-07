@@ -38,11 +38,12 @@ object Peer {
 // to the correct actors
 class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     extends Actor
-    with Stash {
+    with Stash
+    with AutoInjectable {
 
   import context.dispatcher
-  import context.system.scheduler
-  import BlockRequestor.Message.{ Resume, BlockDoneAndRequestNext }
+  import context.system
+  import BlockRequestor._
 
   val MaxRequestPipeline = 5
   val protocol = context.actorOf(protocolProps)
@@ -135,7 +136,9 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
       // Don't need to send KeepAlive message if already sending another message
       keepAliveTask map { _.cancel }
       handleMessage(m)
-      keepAliveTask = Some(scheduler.scheduleOnce(1.5 minutes) { sendHeartbeat() })
+      keepAliveTask = Some(system.scheduler.scheduleOnce(1.5 minutes) {
+        sendHeartbeat()
+      })
   }
 
   // Default receive behavior for messages from protocol
@@ -153,7 +156,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     // construction
     case PeerM.DownloadPiece(idx, size) =>
       currentPieceIndex = idx
-      requestor = Some(createBlockRequestor)
+      requestor = Some(createBlockRequestor(idx, size))
 
     // Peer was being choked, and another peer took up the piece this peer was
     // downloading before it was choked, so have to stop downloding this piece
@@ -187,13 +190,12 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     case BT.UnchokeR =>
       unstashAll()
       requestor match {
-        case None =>
-          router ! PeerM.ReadyForPiece(peerHas)
-        case Some(req) =>
-          req ! Resume
-          router ! PeerM.Resume(currentPieceIndex)
+        case None => router ! PeerM.ReadyForPiece(peerHas)
+        case Some(req) => router ! PeerM.Resume(currentPieceIndex)
       }
       context.become(receive)
+    case r: BT.Reply =>
+      handleReply(r)
     case m: BT.Message =>
       stash()
   }
@@ -246,7 +248,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
         peerInterested = false
 
       case BT.RequestR(idx, off, len) =>
-        if (iHave.contains(idx) && !peerChoking) {
+        if (iHave.contains(idx) && !amChoking) {
           router ! FM.Read(idx, off, len)
         } else {
           context stop self
@@ -270,16 +272,16 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
 
   // Returns actorRef of BlockRequestor Actor, also has depedency injection
   // logic
-  def createBlockRequestor(protocol: ActorRef, index: Int, size: Int): ActorRef = {
+  def createBlockRequestor(index: Int, size: Int): ActorRef = {
     injectOptional [ActorRef](BlockRequestorId) getOrElse {
-      context.actorOf(BlockRequestor.props(protocol, index, size))
+      context.actorOf(BlockRequestor.props(index, size))
     }
   }
 
   // Reset piece index to -1 and end requestor actor.  Clear all references
   def endCurrentPieceDownload(): Unit = {
     currentPieceIndex = -1
-    requestor map { _ ! PoisonPill }
+    requestor foreach { _ ! PoisonPill }
     requestor = None
   }
 
@@ -290,7 +292,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     def checkHeartbeat(): Unit = {
       if (keepAlive) {
         keepAlive = false
-        scheduler.scheduleOnce(3 minutes) { checkHeartbeat }
+        system.scheduler.scheduleOnce(3 minutes) { checkHeartbeat }
       } else {
         router ! "No KeepAlive"
         context stop self
@@ -303,7 +305,9 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
 
   def sendHeartbeat(): Unit = {
     protocol ! BT.KeepAlive
-    keepAliveTask = Some(scheduler.scheduleOnce(1.5 minutes) { sendHeartbeat() })
+    keepAliveTask = Some(system.scheduler.scheduleOnce(1.5 minutes) {
+      sendHeartbeat()
+    })
   }
 
 

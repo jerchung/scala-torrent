@@ -48,7 +48,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor { this: Parent =>
   // ByteStrings are implicitly converted to Ints / Strings when needed
   @tailrec
   def handleReply(data: ByteString): Unit = {
-    if (!data.isEmpty) {
+    if (data.nonEmpty) {
       var length: Int = 0
       var msg: Option[BT.Reply] = None
       if (data.head == 19 && data.slice(1, 20) == BT.protocol) {
@@ -66,7 +66,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor { this: Parent =>
         }
       }
 
-      msg map { m => parent ! m }
+      msg foreach { parent ! _ }
       handleReply(data.drop(length))
     }
   }
