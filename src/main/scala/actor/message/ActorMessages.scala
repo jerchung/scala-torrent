@@ -21,16 +21,17 @@ object TorrentM {
 }
 
 object PeerM {
-  case class Downloaded(id: ByteString, length: Int)
-  case class Connected(peerId: ByteString)
+  case class Downloaded(length: Int)
+  case object Connected
   case class ReadyForPiece(peerHas: BitSet)
-  case class Disconnected(id: ByteString, peerHas: BitSet)
+  case class Disconnected(peerHas: BitSet)
   case class ChokedOnPiece(index: Int)
   case class DownloadPiece(index: Int, size: Int)
   case class Resume(index: Int)
   case class PieceAvailable(update: Either[Int, BitSet])
   case class PieceDone(idx: Int)
   case class PieceInvalid(idx: Int)
+  case class Interested(id: ByteString)
   case object ClearPiece
 }
 

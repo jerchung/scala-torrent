@@ -12,7 +12,7 @@ import org.jerchung.torrent.dependency.BindingKeys
 import scala.concurrent.duration._
 
 object PeerServer {
-  def props: Props = {
+  def props(implicit bindingModule: BindingModule): Props = {
     Props(new PeerServer)
   }
 }

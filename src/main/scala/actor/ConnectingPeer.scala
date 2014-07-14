@@ -11,7 +11,10 @@ import org.jerchung.torrent.actor.message.TorrentM
 import org.jerchung.torrent.dependency.BindingKeys
 
 object ConnectingPeer {
-  def props(remote: InetSocketAddress, peerId: ByteString): Props = {
+  def props(
+      remote: InetSocketAddress,
+      peerId: ByteString)
+      (implicit bindingModule: BindingModule): Props = {
     Props(new ConnectingPeer(remote, peerId))
   }
 }

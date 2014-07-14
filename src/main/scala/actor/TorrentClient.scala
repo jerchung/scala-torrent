@@ -23,7 +23,7 @@ import scala.util.Random
 
 object TorrentClient {
 
-  def props(fileName: String): Props = {
+  def props(fileName: String)(implicit bindingModule: BindingModule): Props = {
     Props(new TorrentClient(fileName: String))
   }
 

@@ -1,4 +1,4 @@
-package org.jerchung.torrent.actor
+/*package org.jerchung.torrent.actor
 
 import akka.actor.ActorSystem
 import akka.actor.Actor
@@ -185,4 +185,4 @@ class TorrentProtocolSpec(_sys: ActorSystem)
 
   }
 
-}
+}*/

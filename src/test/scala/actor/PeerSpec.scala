@@ -1,4 +1,4 @@
-package org.jerchung.torrent.actor
+/*package org.jerchung.torrent.actor
 
 import akka.actor.ActorSystem
 import akka.actor.Actor
@@ -38,7 +38,6 @@ class PeerSpec(_sys: ActorSystem)
     val fileManager = TestProbe()
     val connection = TestProbe()
     val testParent = TestProbe()
-    val mockScheduler = mock[Scheduler]
     val protocolProps = Props(new MockChild(connection.ref))
     val peerProps = Props(new Peer(info, protocolProps, fileManager.ref)
       with TestParent with TestScheduler {
@@ -301,4 +300,4 @@ class PeerSpec(_sys: ActorSystem)
     }
   }
 
-}
+}*/

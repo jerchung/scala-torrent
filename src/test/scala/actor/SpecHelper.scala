@@ -36,8 +36,8 @@ class MockChild(probe: ActorRef) extends Actor {
  */
 abstract class ActorSpec(_sys: ActorSystem)
     extends TestKit(_sys)
-    with Suite
     with ImplicitSender
+    with Suite
     with BeforeAndAfterAll {
 
   override def afterAll = {

@@ -1,7 +1,11 @@
 package org.jerchung.torrent.actor
 
-import akka.actor.{ Actor, ActorRef, Props, Cancellable }
-import org.jerchung.torrent.actor.message. { PeerM, FM }
+import akka.actor.Actor
+import akka.actor.ActorRef
+import akka.actor.Props
+import org.jerchung.torrent.actor.message.FM
+import org.jerchung.torrent.actor.message.PeerM
+import org.jerchung.torrent.actor.message.BT
 
 object PeerRouter {
   def props(
@@ -26,12 +30,12 @@ class PeerRouter(
   def receive = {
 
     // Messages to be sent to both peersManager and piecesManager
-    case msg @ (_: PeerM.Disconnected | _: PeerM.Connected) =>
+    case msg @ (_: PeerM.Disconnected | PeerM.Connected) =>
       peersManager forward msg
       piecesManager forward msg
 
     // peersManager only
-    case msg @ (_: PeerM.Downloaded) =>
+    case msg @ (_: PeerM.Downloaded | BT.NotInterestedR | BT.InterestedR) =>
       peersManager forward msg
 
     // PiecesManager only

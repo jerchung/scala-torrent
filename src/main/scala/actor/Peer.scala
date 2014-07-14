@@ -18,7 +18,11 @@ import scala.concurrent.duration._
 import scala.language.postfixOps
 
 object Peer {
-  def props(info: PeerInfo, protocolProps: Props, router: ActorRef): Props = {
+  def props(
+      info: PeerInfo,
+      protocolProps: Props,
+      router: ActorRef)
+      (implicit bindingModule: BindingModule): Props = {
     Props(new Peer(info, protocolProps, router))
   }
 
@@ -76,23 +80,23 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
   // handshake over
   override def preStart(): Unit = {
     peerId match {
-      case Some(id) =>
-        protocol ! BT.Handshake(infoHash, id)
-        context.become(initiatedHandshake(infoHash, id))
+      case Some(pid) =>
+        protocol ! BT.Handshake(infoHash, ownId)
+        context.become(initiatedHandshake(infoHash, pid))
       case None =>
         context.become(waitingForHandshake(infoHash))
     }
   }
 
   override def postStop(): Unit = {
-    peerId foreach { router ! PeerM.Disconnected(_, peerHas) }
+    router ! PeerM.Disconnected(peerHas)
   }
 
 
   def waitingForHandshake(testInfoHash: ByteString): Receive = {
     case BT.HandshakeR(infoHash, peerId) if (infoHash == testInfoHash) =>
       protocol ! BT.Handshake(infoHash, ownId)
-      router ! PeerM.Connected(peerId)
+      router ! PeerM.Connected
       this.peerId = Some(peerId)
       heartbeat()
       context.become(acceptBitfield)
@@ -103,7 +107,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
   def initiatedHandshake(testInfoHash:ByteString, testId: ByteString): Receive = {
     case BT.HandshakeR(infoHash, peerId)
         if (infoHash == testInfoHash && peerId == testId) =>
-      router ! PeerM.Connected(peerId)
+      router ! PeerM.Connected
       heartbeat()
       context.become(acceptBitfield)
 
@@ -132,6 +136,9 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
 
   // Default receive behavior for messages meant to be forwarded to peer
   def receiveMessage: Receive = {
+    case BT.Unchoke if (!peerInterested) =>
+      sender ! BT.NotInterested
+
     case m: BT.Message =>
       // Don't need to send KeepAlive message if already sending another message
       keepAliveTask map { _.cancel }
@@ -209,13 +216,20 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
   */
   def handleMessage(message: BT.Message): Unit = {
     message match {
-      case BT.Choke                         => amChoking = true
-      case BT.Unchoke                       => amChoking = false
-      case BT.Interested                    => amInterested = true
-      case BT.NotInterested                 => amInterested = false
-      case BT.Have(index)                   => iHave += index
-      case BT.Bitfield(bitfield, numPieces) => iHave = bitfield
-      case _                                =>
+      case BT.Choke =>
+        amChoking = true
+      case BT.Unchoke =>
+        amChoking = false
+        sender ! BT.Interested
+      case BT.Interested =>
+        amInterested = true
+      case BT.NotInterested =>
+        amInterested = false
+      case BT.Have(index) =>
+        iHave += index
+      case BT.Bitfield(bitfield, numPieces) =>
+        iHave = bitfield
+      case _ =>
     }
     protocol ! message
   }
@@ -243,9 +257,11 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
 
       case BT.InterestedR =>
         peerInterested = true
+        router ! BT.InterestedR
 
       case BT.NotInterestedR =>
         peerInterested = false
+        router ! BT.NotInterestedR
 
       case BT.RequestR(idx, off, len) =>
         if (iHave.contains(idx) && !amChoking) {
@@ -256,7 +272,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
 
       // A part of piece came in due to a request
       case BT.PieceR(idx, off, block) =>
-        peerId map { router ! PeerM.Downloaded(_, block.length) }
+        router ! PeerM.Downloaded(block.length)
         router ! FM.Write(idx, off, block)
         requestor map { _ ! BlockDoneAndRequestNext(off) }
 

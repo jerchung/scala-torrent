@@ -8,8 +8,11 @@ import org.jerchung.torrent.dependency.BindingKeys._
 import scala.annotation.tailrec
 
 object BlockRequestor {
-  def props(index: Int, size: Int): Props = {
-    Props(new BlockRequestor(index, size) with ProdParent)
+  def props(
+      index: Int,
+      size: Int)
+      (implicit bindingModule: BindingModule): Props = {
+    Props(new BlockRequestor(index, size))
   }
 
   case object Resume

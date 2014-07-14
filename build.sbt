@@ -1,8 +1,12 @@
 name :="torrent"
 
+autoCompilerPlugins := true
+
 scalaVersion in ThisBuild :="2.10.2"
 
 version :="1.0"
+
+addCompilerPlugin("com.escalatesoft.subcut" %% "subcut" % "2.1")
 
 scalacOptions ++= Seq("-unchecked", "-deprecation","-feature")
 
@@ -24,5 +28,5 @@ libraryDependencies ++= Seq(
   "org.scalatest" % "scalatest_2.10" % "2.0" % "test",
   "com.typesafe.akka" %% "akka-testkit" % "2.2.3" % "test",
   "org.mockito" % "mockito-core" % "1.9.5" % "test",
-  "org.specs2" %% "specs2" % "2.3.7" % "test"
+  "org.specs2" %% "specs2" % "2.3.13" % "test"
 )

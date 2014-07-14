@@ -45,7 +45,7 @@ class SingleFileWorker(
       sender ! FW.ReadDone(idx, block)
 
     case FM.Write(idx, off, block) =>
-      val write = write(off, block)
+      val written = write(off, block)
       sender ! FW.WriteDone(idx)
 
   }

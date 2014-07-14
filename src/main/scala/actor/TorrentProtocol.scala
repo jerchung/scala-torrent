@@ -47,7 +47,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor { this: Parent =>
   // through the given bytestring and send messages to peerclient as they're 'translated'
   // ByteStrings are implicitly converted to Ints / Strings when needed
   @tailrec
-  def handleReply(data: ByteString): Unit = {
+  final def handleReply(data: ByteString): Unit = {
     if (data.nonEmpty) {
       var length: Int = 0
       var msg: Option[BT.Reply] = None

@@ -20,7 +20,10 @@ import ExecutionContext.Implicits.global
 
 object MultiFileWorker {
 
-  def props(files: List[TorrentFile], pieceSize: Int): Props = {
+  def props(
+      files: List[TorrentFile],
+      pieceSize: Int)
+      (implicit bindingModule: BindingModule): Props = {
     Props(new MultiFileWorker(files, pieceSize))
   }
 

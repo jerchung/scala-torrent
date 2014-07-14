@@ -1,20 +1,20 @@
 package org.jerchung.torrent.actor
 
 import akka.actor.{Actor, ActorRef, Props}
+import akka.pattern.ask
 import akka.util.ByteString
 import akka.util.Timeout
-import akka.pattern.ask
+import com.escalatesoft.subcut.inject._
 import com.twitter.util.LruMap
 import java.nio.ByteBuffer
 import java.security.MessageDigest
-import com.escalatesoft.subcut.inject._
 import org.jerchung.torrent.actor.message.BT
 import org.jerchung.torrent.actor.message.FM._
 import org.jerchung.torrent.actor.message.FW
 import org.jerchung.torrent.actor.message.PeerM
 import org.jerchung.torrent.actor.persist.MultiFileWorker
-import org.jerchung.torrent.actor.persist.SingleFileWorker
 import org.jerchung.torrent.actor.persist.PieceWorker
+import org.jerchung.torrent.actor.persist.SingleFileWorker
 import org.jerchung.torrent.dependency.BindingKeys._
 import org.jerchung.torrent.piece._
 import org.jerchung.torrent.Torrent
@@ -23,12 +23,12 @@ import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.concurrent._
 import scala.concurrent.duration._
+import scala.language.postfixOps
 import scala.util.Failure
 import scala.util.Success
 
-
 object FileManager {
-  def props(torrent: Torrent): Props = {
+  def props(torrent: Torrent)(implicit bindingModule: BindingModule): Props = {
     Props(new FileManager(torrent))
   }
 
@@ -54,8 +54,9 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
   import FileManager._
   import PieceWorker._
   import context.dispatcher
+  import context.system
 
-  val FileWriteTimeout = 5 minutes
+  val FileWriteTimeout = 1 minutes
 
   // Important values
   val numPieces   = torrent.numPieces
@@ -112,7 +113,7 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
     case Read(idx, off, length) if ((cachedPieces contains idx) ||
                                     (flushingPieces contains idx)) =>
       val peer = sender
-      val data: Array[Byte] = cachedPieces.getOrElse(idx, flushingPieces(idx))
+      val data = cachedPieces.getOrElse(idx, flushingPieces(idx))
       Future {
         val block = ByteString.fromArray(data, off, length)
         peer ! BT.Piece(idx, off, block)
@@ -120,7 +121,6 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
 
     // Piece is not cached :(
     case msg @ Read(idx, off, length) =>
-      val state = pieceStates(idx)
       pieceStates(idx) match {
         case Disk =>
           pieceWorkers(idx) ! msg
@@ -130,13 +130,6 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
           queueRequest(sender, idx, off, length)
         case _ => // Do nothing (should not get here)
       }
-
-    case FW.ReadDone(idx, block) =>
-      pieceStates(idx) = Disk
-      cachedPieces += (idx -> block)
-      val requests = queuedRequests(idx)
-      queuedRequests -= idx
-      Future { fulfillRequests(idx, block, requests) }
 
     case Write(idx, off, block) =>
       pieceStates(idx) match {
@@ -166,28 +159,32 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
         case _ =>
       }
 
+    case FW.ReadDone(idx, piece) =>
+      pieceStates(idx) = Disk
+      cachedPieces += (idx -> piece)
+      val requests = queuedRequests(idx)
+      queuedRequests -= idx
+      Future { fulfillRequests(idx, piece, requests) }
+
     case FW.WriteDone(idx) =>
       flushingPieces -= idx
       pieceStates(idx) = Disk
 
   }
 
-  // TODO -> Exponential backoff + limit the amount of retries
-  def writePiece(index: Int, offset: Int, block: Array[Byte]): Unit = {
+  def writePiece(index: Int, offset: Int, piece: Array[Byte]): Unit = {
     implicit val timeout = Timeout(FileWriteTimeout)
     val numTries = 3
 
-    @tailrec
     def tryWrite(count: Int): Unit = {
-      if (count < numTries) {
-        val writeF = (fileWorker ? FW.Write(index, offset, block))
-                     .mapTo[FW.WriteDone]
-        writeF onComplete {
-          case Success(writeDoneMsg) => self ! writeDoneMsg
-          case Failure(e) => tryWrite(count + 1)
-        }
-      } else {
-        self ! akka.actor.Status.Failure("Can't Write")
+      val writeF = (fileWorker ? FW.Write(index, offset, piece))
+                   .mapTo[FW.WriteDone]
+      writeF onComplete {
+        case Success(writeDoneMsg) =>
+          self ! writeDoneMsg
+        case Failure(e) =>
+          if (count < numTries) tryWrite(count + 1)
+          else self ! e
       }
     }
 
@@ -203,10 +200,10 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
   // Fulfill all the queued requests for that particular piece
   def fulfillRequests(
       index: Int,
-      block: Array[Byte],
+      piece: Array[Byte],
       requests: Set[BlockRequest]): Unit = {
     requests foreach { case BlockRequest(peer, offset, length) =>
-      val bytes = ByteString.fromArray(block, offset, length)
+      val bytes = ByteString.fromArray(piece, offset, length)
       peer ! BT.Piece(index, offset, bytes)
     }
   }

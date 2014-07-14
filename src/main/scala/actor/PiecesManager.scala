@@ -16,7 +16,11 @@ import scala.util.Random
 
 object PiecesManager {
 
-  def props(numPieces: Int, pieceSize: Int, totalSize: Int): Props = {
+  def props(
+      numPieces: Int,
+      pieceSize: Int,
+      totalSize: Int)
+      (implicit bindingModule: BindingModule): Props = {
     Props(new PiecesManager(numPieces, pieceSize, totalSize))
   }
 
@@ -71,16 +75,18 @@ object PiecesManager {
           chosen
         } else {
           val pieceInfo = pieces.head
-          val newChosen =
-            if (possibles contains pieceInfo.index)
-              chosen :+ pieceInfo.index
-            else
-              chosen
-          getRarePieces(newChosen, pieces.tail, count + 1)
+          if (possibles contains pieceInfo.index)
+            getRarePieces(chosen :+ pieceInfo.index, pieces.tail, count + 1)
+          else
+            getRarePieces(chosen, pieces.tail, count)
         }
       }
 
-      val rareIndexes = getRarePieces(Vector[Int](), pieces, 0)
+      val rareIndexes = if (possibles.size <= k)
+        possibles.toVector
+      else
+        getRarePieces(Vector[Int](), pieces, 0)
+
       if (rareIndexes.isEmpty) {
         -1
       } else {
@@ -162,12 +168,21 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
     // Update frequency of pieces
     case PeerM.PieceAvailable(available) =>
       available match {
-        case Right(bitfield) => bitfield foreach { i => update(i, 1) }
-        case Left(i) => update(i, 1)
+        case Right(bitfield) =>
+          val remaining = bitfield &~ (completedPieces | requestedPieces)
+          if (remaining.nonEmpty) {
+            sender ! BT.Interested
+          }
+          bitfield foreach { i => update(i, 1) }
+        case Left(i) =>
+          if (!completedPieces.contains(i) && !requestedPieces.contains(i)) {
+            sender ! BT.Interested
+          }
+          update(i, 1)
       }
 
     // Upon peer disconnect, update frequency of lost pieces
-    case PeerM.Disconnected(peerId, peerHas) =>
+    case PeerM.Disconnected(peerHas) =>
       peerHas foreach { i => update(i, -1) }
 
     // Save pieces index and actorRef for piece download resumption
@@ -182,7 +197,7 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
       requestedPieces += idx
 
     // Peer is connected, send a bitfield message
-    case msg: PeerM.Connected =>
+    case PeerM.Connected =>
       sender ! BT.Bitfield(completedPieces, numPieces)
 
     // Delegate piece choosing logic to a PieceChooser actor for async
