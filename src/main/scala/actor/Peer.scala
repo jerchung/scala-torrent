@@ -136,9 +136,6 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
 
   // Default receive behavior for messages meant to be forwarded to peer
   def receiveMessage: Receive = {
-    case BT.Unchoke if (!peerInterested) =>
-      sender ! BT.NotInterested
-
     case m: BT.Message =>
       // Don't need to send KeepAlive message if already sending another message
       keepAliveTask map { _.cancel }
@@ -218,9 +215,10 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     message match {
       case BT.Choke =>
         amChoking = true
+      case BT.Unchoke if (!amChoking) =>
+        return
       case BT.Unchoke =>
         amChoking = false
-        sender ! BT.Interested
       case BT.Interested =>
         amInterested = true
       case BT.NotInterested =>

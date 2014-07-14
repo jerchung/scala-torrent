@@ -18,27 +18,10 @@ object PeersManager {
     Props(new PeersManager)
   }
 
-  implicit val ordering = new Ordering[(ActorRef, Float)] {
-    def compare(x: (ActorRef, Float), y: (ActorRef, Float)) = y._2 compare x._2
-  }
-
-  case class PeerConnection(id: ByteString, peer: ActorRef, var rate: Double)
-      extends Ordered[PeerConnection] {
-
-    // Want to invert priority
-    // When put into priority queue, max becomes min and vice versa
-    def compare(that: PeerConnection): Int = {
-      -1 * rate.compare(that.rate)
-    }
-  }
-
   case object Unchoke
-  case class UnchokeChosen(chosen: Set[ActorRef])
   case object OptimisticUnchoke
-  case class OptimisticUnchokeChosen(chosen: ActorRef)
   case class OldPeer(peer: ActorRef)
   case class Broadcast(message: Any)
-
 }
 
 /*
@@ -55,18 +38,15 @@ class PeersManager extends Actor {
   val unchokeFrequency: FiniteDuration = 10 seconds
   val optimisticUnchokeFrequency: FiniteDuration = 30 seconds
   val newlyConnectedDuration: FiniteDuration = 1 minute
-  val numUnchokedPeers = 4
+  val NumUnchoked = 4
 
   // All currently connected Peers (actorRef -> Download Rate)
   // Need to differentiate between newly connected peers and old peers for unchoking
   // purposes
   var peerRates = Map[ActorRef, Float]()
   var newPeers = Set[ActorRef]()
-
   var interestedPeers = Set[ActorRef]()
-
-  // Set of peerIds of currrent unchoked peers
-  var currentUnchokedPeers = Set[ActorRef]()
+  var currentUnchoked = Set[ActorRef]()
 
   override def preStart(): Unit = {
     scheduleUnchoke()
@@ -80,13 +60,13 @@ class PeersManager extends Actor {
       newPeers += peer
       peerRates += (peer -> 0f)
       system.scheduler.scheduleOnce(newlyConnectedDuration) {
-        newPeers -= peer
+        self ! OldPeer(peer)
       }
 
     case PeerM.Disconnected(peerHas) =>
       newPeers -= sender
       peerRates -= sender
-      currentUnchokedPeers -= sender
+      currentUnchoked -= sender
 
     case PeerM.Downloaded(size) =>
       peerRates += (sender -> (peerRates(sender) + size.toFloat))
@@ -100,32 +80,33 @@ class PeersManager extends Actor {
     case BT.InterestedR =>
       interestedPeers += sender
 
-    case Unchoke =>
-      val chosen = kMaxPeers(peerRates, numUnchokedPeers)
-      self ! UnchokeChosen(chosen)
+    case OldPeer(peer) =>
+      newPeers -= peer
 
-    case UnchokeChosen(chosen) =>
-      val toChoke = currentUnchokedPeers &~ chosen
+    // Unchoke top NumUnchoked peers
+    case Unchoke =>
+      val topKTuples = peerRates.toList.sortBy(- _._2).take(NumUnchoked)
+      val chosen = topKTuples.map(_._1).toSet
+      val toChoke = currentUnchoked &~ chosen
       chosen foreach { _ ! BT.Unchoke }
       toChoke foreach { _ ! BT.Choke }
-      currentUnchokedPeers = chosen
+      currentUnchoked = chosen
+      peerRates map { case (peer, rate) => (peer -> 0f) }
       scheduleUnchoke()
 
     // Newly connected peers are 3 times as likely to be unchoked
-    case OptimisticUnchoke =>
-      optimisticChoosePeer foreach { self ! OptimisticUnchokeChosen(_) }
-
     // Choke worst performing peer out of currently unchoked peers and unchoke
     // the chosen peer
-    case OptimisticUnchokeChosen(peer) =>
-      if (currentUnchokedPeers.size >= numUnchokedPeers) {
-        val minPeer = currentUnchokedPeers minBy { peerRates }
-        minPeer ! BT.Choke
-        currentUnchokedPeers -= minPeer
+    case OptimisticUnchoke =>
+      optimisticChoosePeer foreach { peer =>
+        if (currentUnchoked.size >= NumUnchoked && !currentUnchoked.contains(peer)) {
+          val minPeer = currentUnchoked minBy { peerRates }
+          minPeer ! BT.Choke
+          currentUnchoked -= minPeer
+        }
+        peer ! BT.Unchoke
+        currentUnchoked += peer
       }
-      peer ! BT.Unchoke
-      currentUnchokedPeers += peer
-
   }
 
   def broadcast(message: Any): Unit = peerRates.keys foreach { _ ! message }
@@ -157,30 +138,6 @@ class PeersManager extends Actor {
     }
 
     selectHelper(0, Random.nextFloat)
-  }
-
-  def kMaxPeers(peers: Map[ActorRef, Float], k: Int): Set[ActorRef] = {
-    // Use implicit ordering in the PeersManager companion object
-    val maxKPeers = new mutable.PriorityQueue[(ActorRef, Float)]()
-    var minPeerRate = 0f;
-    peers foreach { case (peer, rate) =>
-      if (maxKPeers.size == k) {
-        if (rate > minPeerRate) {
-          maxKPeers.dequeue
-          maxKPeers.enqueue((peer, rate))
-          minPeerRate = maxKPeers.head._2
-        }
-      } else {
-        maxKPeers.enqueue((peer, rate))
-        minPeerRate = maxKPeers.head._2
-      }
-      // Reset download rate for next unchoke
-      peerRates += (peer -> 0f)
-    }
-    maxKPeers.foldLeft(Set[ActorRef]()) {
-      case (peers, (peer, rate)) =>
-        peers + peer
-    }
   }
 
   def scheduleUnchoke(): Unit = {
