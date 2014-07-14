@@ -130,6 +130,8 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
   // Which pieces are currently being requested
   var requestedPieces = BitSet()
 
+  def processedPieces = completedPieces | requestedPieces
+
   // Initialize with all pieces at 0 frequency
   override def preStart(): Unit = {
     (0 until numPieces) foreach { idx =>
@@ -140,25 +142,23 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
 
   def receive = {
 
+    // If somehow this piece was already chosen while the piece chooser
+    // actor was working, we remove the idx from the possibles and tell it to
+    // rechoose.  Otherwise send chosen piece to peer and if a currently choked
+    // peer had been downloading that piece tell it to clear that piece and
+    // end the choosing actor
+    case ChosenPiece(idx, peer, possibles) if (processedPieces contains idx) =>
+      val newPossibles = (possibles - idx) &~ processedPieces
+      sender ! ChoosePiece(newPossibles, piecesSet)
+
     // Message sent from pieceChooser with valid index
     case ChosenPiece(idx, peer, possibles) if (idx >= 0) =>
-
-      // If somehow this piece was already chosen while the piece chooser
-      // actor was working, we remove the idx from the possibles and tell it to
-      // rechoose.  Otherwise send chosen piece to peer and if a currently choked
-      // peer had been downloading that piece tell it to clear that piece and
-      // end the choosing actor
-      if (completedPieces.contains(idx) || requestedPieces.contains(idx)) {
-        val newPossibles = (possibles - idx) &~ (completedPieces | requestedPieces)
-        sender ! ChoosePiece(newPossibles, piecesSet)
-      } else {
-        val size = pieceSize min (totalSize - (pieceSize * idx))
-        chokedPeers.get(idx) map { _ ! PeerM.ClearPiece }
-        chokedPeers -= idx
-        peer ! PeerM.DownloadPiece(idx, size)
-        requestedPieces += idx
-        sender ! PoisonPill
-      }
+      val size = pieceSize min (totalSize - (pieceSize * idx))
+      chokedPeers.get(idx) map { _ ! PeerM.ClearPiece }
+      chokedPeers -= idx
+      peer ! PeerM.DownloadPiece(idx, size)
+      requestedPieces += idx
+      sender ! PoisonPill
 
     // Sent from PieceChooser with invalid index
     case ChosenPiece(idx, peer, possibles) if (idx < 0) =>
@@ -169,7 +169,7 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
     case PeerM.PieceAvailable(available) =>
       available match {
         case Right(bitfield) =>
-          val remaining = bitfield &~ (completedPieces | requestedPieces)
+          val remaining = bitfield &~ processedPieces
           if (remaining.nonEmpty) {
             sender ! BT.Interested
           }
@@ -203,13 +203,17 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
     // Delegate piece choosing logic to a PieceChooser actor for async
     case PeerM.ReadyForPiece(peerHas) =>
       val peer = sender
-      val possibles = peerHas &~ (completedPieces | requestedPieces)
+      val possibles = peerHas &~ processedPieces
       val chooser = injectOptional [ActorRef](PieceChooserId) getOrElse {
         context.actorOf(PieceChooser.props(peer))
       }
       chooser ! ChoosePiece(possibles, piecesSet)
 
     case PeerM.PieceInvalid(idx) =>
+      requestedPieces -= idx
+
+    case PeerM.PieceDone(idx) =>
+      completedPieces += idx
       requestedPieces -= idx
   }
 

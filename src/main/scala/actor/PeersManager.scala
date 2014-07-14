@@ -91,7 +91,7 @@ class PeersManager extends Actor {
       chosen foreach { _ ! BT.Unchoke }
       toChoke foreach { _ ! BT.Choke }
       currentUnchoked = chosen
-      peerRates map { case (peer, rate) => (peer -> 0f) }
+      peerRates = peerRates map { case (peer, rate) => (peer -> 0f) }
       scheduleUnchoke()
 
     // Newly connected peers are 3 times as likely to be unchoked
@@ -99,7 +99,8 @@ class PeersManager extends Actor {
     // the chosen peer
     case OptimisticUnchoke =>
       optimisticChoosePeer foreach { peer =>
-        if (currentUnchoked.size >= NumUnchoked && !currentUnchoked.contains(peer)) {
+        if (currentUnchoked.size >= NumUnchoked &&
+            !currentUnchoked.contains(peer)) {
           val minPeer = currentUnchoked minBy { peerRates }
           minPeer ! BT.Choke
           currentUnchoked -= minPeer
@@ -137,7 +138,12 @@ class PeersManager extends Actor {
         selectHelper(idx + 1, cutoff - peerProbabilities(idx)._2)
     }
 
-    selectHelper(0, Random.nextFloat)
+    try {
+      selectHelper(0, Random.nextFloat)
+    } catch {
+      case e: Throwable =>
+        peerProbabilities.head._1
+    }
   }
 
   def scheduleUnchoke(): Unit = {
