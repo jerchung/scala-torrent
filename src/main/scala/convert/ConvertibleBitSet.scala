@@ -8,6 +8,11 @@ import scala.collection.BitSet
 
 class ConvertibleBitSet(bits: BitSet) {
 
+  /*
+   * Takes 8 bit chunks of the BitSet, converts each 8 bit chunk into an
+   * unsigned integer byte, and then adds that byte as an entry in the
+   * ByteString
+   */
   def toByteString(length: Int): ByteString = {
 
     @tailrec

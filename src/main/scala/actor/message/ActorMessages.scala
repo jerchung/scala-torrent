@@ -54,14 +54,14 @@ object BT {
 
   val protocol = ByteString.fromString("BitTorrent protocol")
 
-  // Take in an int and the # of bytes it should contain, return the
+  // Take in an int and the # of bytes it should be represented by, return the
   // corresponding ByteString of the int with appropriate leading 0s
   // Works for multiple nums of the same size
   // Don't use ByteBuffer since I need speed.
   private def byteStringify(size: Int, nums: Int*): ByteString = {
     val builder = ByteString.newBuilder
     for (
-      num <- nums;
+      n <- nums;
       idx <- 0 until size
     ) {
       val shift = Constant.ByteSize * (size - 1 - idx)
