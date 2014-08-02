@@ -61,7 +61,7 @@ object BT {
   private def byteStringify(size: Int, nums: Int*): ByteString = {
     val builder = ByteString.newBuilder
     for (
-      num <- nums
+      num <- nums;
       idx <- 0 until size
     ) {
       val shift = Constant.ByteSize * (size - 1 - idx)
