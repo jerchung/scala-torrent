@@ -43,9 +43,9 @@ final class PeerRouterSpec(_sys: ActorSystem)
     }
 
     "forward Connected message to PeersManager and PiecesManager" in new peerRouter {
-      peerRouter ! mock[PeerM.Connected]
-      testPeersManager.expectMsgClass(classOf[PeerM.Connected])
-      testPiecesManager.expectMsgClass(classOf[PeerM.Connected])
+      peerRouter ! PeerM.Connected
+      testPeersManager.expectMsg(PeerM.Connected)
+      testPiecesManager.expectMsg(PeerM.Connected)
       testFileManager.expectNoMsg(duration)
     }
 
@@ -57,8 +57,8 @@ final class PeerRouterSpec(_sys: ActorSystem)
     }
 
     "foward Resume message to PiecesManager" in new peerRouter {
-      peerRouter ! mock[PeerM.Resume]
-      testPiecesManager.expectMsgClass(classOf[PeerM.Resume])
+      peerRouter ! PeerM.Resume
+      testPiecesManager.expectMsg(PeerM.Resume)
       testPeersManager.expectNoMsg(duration)
       testFileManager.expectNoMsg(duration)
     }

@@ -14,7 +14,6 @@ object PieceWorker {
   }
 
   // Used to store info about requests that came in from various peers
-  case class BlockRequest(peer: ActorRef, offset: Int, length: Int)
   case class BlockWrite(offset: Int, block: ByteString, peer: ActorRef)
   case object ClearPieceData
   case class BlockWriteDone(
@@ -31,7 +30,7 @@ class PieceWorker(
     fileWorker: ActorRef,
     index: Int,
     piece: Piece)
-    extends Actor {
+  extends Actor {
 
   import PieceWorker._
 

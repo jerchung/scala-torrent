@@ -59,29 +59,15 @@ object BT {
   // Works for multiple nums of the same size
   // Don't use ByteBuffer since I need speed.
   private def byteStringify(size: Int, nums: Int*): ByteString = {
-
-    @tailrec
-    def byteHelper1(nums: Seq[Int], bytes: ByteString): ByteString = {
-      if (nums.isEmpty) {
-        bytes
-      } else {
-        val n = nums.head
-        val chunk = byteHelper2(n, 0, ByteString())
-        byteHelper1(nums.tail, bytes ++ chunk)
-      }
+    val builder = ByteString.newBuilder
+    for (
+      num <- nums
+      idx <- 0 until size
+    ) {
+      val shift = Constant.ByteSize * (size - 1 - idx)
+      builder += ((n >> shift) & 0xFF).toByte
     }
-
-    @tailrec
-    def byteHelper2(n: Int, idx: Int, chunk: ByteString): ByteString = {
-      if (idx < size) {
-        val shift = Constant.ByteSize * (size - 1 - idx)
-        byteHelper2(n, idx + 1, chunk :+ ((n >> shift) & 0xFF).toByte)
-      } else {
-        chunk
-      }
-    }
-
-    byteHelper1(nums, ByteString())
+    builder.result
   }
 
   // Messages sent *TO* TorrentProtocol actor

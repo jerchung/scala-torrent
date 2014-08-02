@@ -39,6 +39,8 @@ object FileManager {
     case class Read(totalOffset: Int, length: Int)
     case class Write(totalOffset: Int, block: ByteString)
   }
+
+  case class BlockRequest(peer: ActorRef, offset: Int, length: Int)
 }
 
 /**
@@ -57,6 +59,7 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
   import context.system
 
   val FileWriteTimeout = 1 minutes
+  val CacheSize = 10
 
   // Important values
   val numPieces   = torrent.numPieces
@@ -66,7 +69,7 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
 
   // Cache map for quick piece access (pieceIndex -> Piece)
   // is LRU since it's not feasible to store ALL pieces in memory
-  val cachedPieces = new LruMap[Int, Array[Byte]](10)
+  val cachedPieces = new LruMap[Int, Array[Byte]](CacheSize)
 
   // Another cache for pieces in the process of being written to disk
   // Pieces are removed from here once they are
@@ -97,7 +100,7 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
 
     pieceHashesGrouped.foldLeft((mutable.ArrayBuffer[ActorRef](), 0, 0)) {
       case ((pieceWorkers, offset, idx), hash) =>
-        val size = pieceSize min totalSize - offset
+        val size = pieceSize min (totalSize - offset)
         val piece = Piece(idx, idx * pieceSize, size, hash)
         val pieceWorker = createPieceWorker(fileWorker, idx, piece)
         (pieceWorkers += pieceWorker, offset + size, idx + 1)
@@ -177,8 +180,7 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
     val numTries = 3
 
     def tryWrite(count: Int): Unit = {
-      val writeF = (fileWorker ? FW.Write(index, offset, piece))
-                   .mapTo[FW.WriteDone]
+      val writeF = (fileWorker ? FW.Write(index, offset, piece)).mapTo[FW.WriteDone]
       writeF onComplete {
         case Success(writeDoneMsg) =>
           self ! writeDoneMsg

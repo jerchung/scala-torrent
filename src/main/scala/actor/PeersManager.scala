@@ -68,7 +68,7 @@ class PeersManager extends Actor {
       peerRates -= sender
       currentUnchoked -= sender
 
-    case PeerM.Downloaded(size) =>
+    case PeerM.Downloaded(size) if (peerRates contains sender) =>
       peerRates += (sender -> (peerRates(sender) + size.toFloat))
 
     case PeerM.PieceDone(i) =>
@@ -91,7 +91,7 @@ class PeersManager extends Actor {
       chosen foreach { _ ! BT.Unchoke }
       toChoke foreach { _ ! BT.Choke }
       currentUnchoked = chosen
-      peerRates = peerRates map { case (peer, rate) => (peer -> 0f) }
+      peerRates = peerRates mapValues { _ => 0f }
       scheduleUnchoke()
 
     // Newly connected peers are 3 times as likely to be unchoked
@@ -108,14 +108,15 @@ class PeersManager extends Actor {
         peer ! BT.Unchoke
         currentUnchoked += peer
       }
+      scheduleOptimisticUnchoke()
   }
 
   def broadcast(message: Any): Unit = peerRates.keys foreach { _ ! message }
 
   def optimisticChoosePeer(): Option[ActorRef] = {
     val interestedNewPeers = newPeers & interestedPeers
-    val otherInterestedPeers = interestedPeers &~ interestedNewPeers
-    val numInterested = 3 * interestedNewPeers.size + otherInterestedPeers.size
+    val interestedOldPeers = interestedPeers &~ interestedNewPeers
+    val numInterested = 3 * interestedNewPeers.size + interestedOldPeers.size
     if (numInterested == 0) {
       None
     } else {
@@ -123,7 +124,7 @@ class PeersManager extends Actor {
       val newPeerProb = 3 * baseProb
       val peerProbabilities: Vector[(ActorRef, Float)] =
         interestedNewPeers.toVector.map((peer: ActorRef) => (peer, newPeerProb)) ++
-        otherInterestedPeers.toVector.map((peer: ActorRef) => (peer, baseProb))
+        interestedOldPeers.toVector.map((peer: ActorRef) => (peer, baseProb))
       Some(weightedSelect(peerProbabilities))
     }
   }

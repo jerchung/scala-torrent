@@ -8,7 +8,7 @@ import scala.collection.BitSet
 class ConvertibleByteString(bytes: ByteString) {
 
   // This stuff has to be fast so I'm using bit shifts etc.
-  // WARNING - Treats bytes as unsigned ints so no negatives will ever be
+  // WARNING - Treats bytes as 8-bit unsigned ints so no negatives will ever be
   // returned
   def toInt: Int = {
     val size = bytes.length

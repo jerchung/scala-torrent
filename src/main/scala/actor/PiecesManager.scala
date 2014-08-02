@@ -175,7 +175,7 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
           }
           bitfield foreach { i => update(i, 1) }
         case Left(i) =>
-          if (!completedPieces.contains(i) && !requestedPieces.contains(i)) {
+          if (!processedPieces.contains(i)) {
             sender ! BT.Interested
           }
           update(i, 1)
