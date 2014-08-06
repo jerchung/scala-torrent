@@ -116,35 +116,37 @@ class PeersManager extends Actor {
   def optimisticChoosePeer(): Option[ActorRef] = {
     val interestedNewPeers = newPeers & interestedPeers
     val interestedOldPeers = interestedPeers &~ interestedNewPeers
-    val numInterested = 3 * interestedNewPeers.size + interestedOldPeers.size
-    if (numInterested == 0) {
+    val interestedDenom = 3 * interestedNewPeers.size + interestedOldPeers.size
+    if (interestedDenom == 0) {
       None
     } else {
-      val baseProb = 1 / numInterested.toFloat
+      val baseProb = 1 / interestedDenom.toFloat
       val newPeerProb = 3 * baseProb
       val peerProbabilities: Vector[(ActorRef, Float)] =
         interestedNewPeers.toVector.map((peer: ActorRef) => (peer, newPeerProb)) ++
         interestedOldPeers.toVector.map((peer: ActorRef) => (peer, baseProb))
-      Some(weightedSelect(peerProbabilities))
+      weightedSelect(peerProbabilities)
     }
   }
 
   def weightedSelect(peerProbabilities: Vector[(ActorRef, Float)]): ActorRef = {
 
     @tailrec
-    def selectHelper(idx: Int, cutoff: Float): ActorRef = {
-      if (cutoff < peerProbabilities(idx)._2)
-        peerProbabilities(idx)._1
-      else
-        selectHelper(idx + 1, cutoff - peerProbabilities(idx)._2)
+    def selectHelper(
+        peerProbabilities: Vector[(ActorRef, Float)],
+        cutoff: Float): Option[ActorRef] = {
+      if (peerProbabilities.isEmpty) {
+        None
+      } else {
+        val (peer, probability) = peerProbabilities.head
+        if (cutoff < probability)
+          Some(peer)
+        else
+          selectHelper(peerProbabilities.tail, cutoff - probability)
+      }
     }
 
-    try {
-      selectHelper(0, Random.nextFloat)
-    } catch {
-      case e: Throwable =>
-        peerProbabilities.head._1
-    }
+    selectHelper(peerProbabilities, Random.nextFloat)
   }
 
   def scheduleUnchoke(): Unit = {

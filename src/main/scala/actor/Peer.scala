@@ -216,7 +216,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
       case BT.Choke =>
         amChoking = true
       case BT.Unchoke if (!amChoking) =>
-        return
+        return // Break out early, no need to send message
       case BT.Unchoke =>
         amChoking = false
       case BT.Interested =>
@@ -272,7 +272,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
       case BT.PieceR(idx, off, block) =>
         router ! PeerM.Downloaded(block.length)
         router ! FM.Write(idx, off, block)
-        requestor map { _ ! BlockDoneAndRequestNext(off) }
+        requestor foreach { _ ! BlockDoneAndRequestNext(off) }
 
       case BT.HaveR(idx) =>
         peerHas += idx
