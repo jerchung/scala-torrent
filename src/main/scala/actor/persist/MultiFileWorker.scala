@@ -27,7 +27,7 @@ object MultiFileWorker {
     Props(new MultiFileWorker(files, pieceSize))
   }
 
-  case class WrappedFileWorker(path: String, size: Int, worker: ActorRef)
+  case class WrappedFileWorker(path: String, length: Int, worker: ActorRef)
 
   // Offset here means offset WITHIN THE FILE, not within all the files as a
   // whole
@@ -118,7 +118,7 @@ class MultiFileWorker(files: List[TorrentFile], pieceSize: Int)
 
   val parent = injectOptional [ActorRef](ParentId) getOrElse { context.parent }
 
-  val singleFileWorkers = files map { f =>
+  val singleFileWorkers: List[WrappedFileWorker] = files map { f =>
     WrappedFileWorker(
       f.path,
       f.length,
@@ -201,16 +201,16 @@ class MultiFileWorker(files: List[TorrentFile], pieceSize: Int)
         affected: List[WorkerJob]): List[WorkerJob] = {
       fileWorkers match {
         case Nil => affected.reverse
-        case fw :: more =>
-          val end = position + fw.size
+        case WrappedFileWorker(path, length, worker) :: more =>
+          val end = position + length
           if (end < targetStart) {
             fileJobsHelper(more, end, affected)
           } else if (position >= targetStop) {
             affected.reverse
           } else {
             val offset = if (targetStart > position) position else 0
-            val length = (fw.size - offset) min (targetStop - position)
-            val workerJob = WorkerJob(fw.worker, offset, length)
+            val jobLength = (length - offset) min (targetStop - position)
+            val workerJob = WorkerJob(worker, offset, jobLength)
             fileJobsHelper(more, end, workerJob :: affected)
           }
       }
