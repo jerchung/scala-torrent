@@ -41,6 +41,44 @@ object FileManager {
   }
 
   case class BlockRequest(peer: ActorRef, offset: Int, length: Int)
+
+  object RequestManager {
+    def props(): Props = {
+      Props(new RequestManager)
+    }
+
+    case class Fulfill(index: Int, peice: Array[Byte])
+    case class Queue(peer: ActorRef, index: Int, offset: Int, length: Int)
+  }
+
+  class RequestManager extends Actor {
+
+    import RequestManager._
+
+    var queuedRequests = Map[Int, Set[BlockRequest]]().withDefaultValue(Set[BlockRequest]())
+
+    def receive = {
+      case Queue(peer, idx, off, length) =>
+        val request = BlockRequest(peer, off, length)
+        queuedRequests += (idx -> (queuedRequests(idx) + request))
+
+      case Fulfill(idx, piece) =>
+        val requests = queuedRequests(idx)
+        queuedRequests -= idx
+        requests foreach { case BlockRequest(peer, offset, length) =>
+          val bytes = ByteString.fromArray(piece, offset, length)
+          peer ! BT.Piece(idx, offset, bytes)
+        }
+    }
+  }
+
+  // Cannot write to disk for some reason, return index of the piece in question
+  // and a message
+  case class DiskWriteException(
+    index: Int,
+    message: String,
+    exception: Throwable)
+    extends Exception
 }
 
 /**
@@ -49,16 +87,18 @@ object FileManager {
  *
  * Parent of this actor *should* be TorrentClient
  *
- * @torrent Torrent object passed in since many values
+ * @torrent Torrent object passed in since it has many values
  */
 class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
 
   import FileManager._
   import PieceWorker._
+  import RequestManager._
   import context.dispatcher
   import context.system
 
   val FileWriteTimeout = 1 minutes
+  val FileWriteTries = 3
   val CacheSize = 10
 
   // Important values
@@ -76,10 +116,6 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
   // completely written to disk
   var flushingPieces = Map[Int, Array[Byte]]()
 
-  // pieceIndex -> BlockRequest
-  var queuedRequests = Map[Int, Set[BlockRequest]]()
-                       .withDefaultValue(Set[BlockRequest]())
-
   // Actor that takes care of reading / writing from disk
   val fileWorker = injectOptional [ActorRef](FileWorkerId) getOrElse {
     torrent.fileMode match {
@@ -93,6 +129,13 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
         context.actorOf(MultiFileWorker.props(torrent.files, pieceSize))
     }
   }
+
+  // Actor to reply to peers with requested parts of pieces once the piece
+  // has come back from disk
+  val requestManager =
+    injectOptional [ActorRef](RequestManagerId) getOrElse {
+      context.actorOf(RequestManager.props)
+    }
 
   // Array of actors which will write blocks to pieces (index -> ActorRef)
   val pieceWorkers: Array[ActorRef] = {
@@ -115,33 +158,29 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
     // Piece is already cached :)
     case Read(idx, off, length) if ((cachedPieces contains idx) ||
                                     (flushingPieces contains idx)) =>
-      val peer = sender
       val data = cachedPieces.getOrElse(idx, flushingPieces(idx))
-      Future {
-        val block = ByteString.fromArray(data, off, length)
-        peer ! BT.Piece(idx, off, block)
-      }
+      val block = ByteString.fromArray(data, off, length)
+      sender ! BT.Piece(idx, off, block)
 
     // Piece is not cached :(
     case msg @ Read(idx, off, length) =>
       pieceStates(idx) match {
         case Disk =>
           pieceWorkers(idx) ! msg
-          queueRequest(sender, idx, off, length)
+          requestManager ! Queue(sender, idx, off, length)
           pieceStates(idx) = Fetching
         case Fetching =>
-          queueRequest(sender, idx, off, length)
+          requestManager ! Queue(sender, idx, off, length)
         case _ => // Do nothing (should not get here)
       }
 
     case Write(idx, off, block) =>
       pieceStates(idx) match {
-        case Unfinished =>
-          pieceWorkers(idx) ! BlockWrite(off, block, sender)
+        case Unfinished => pieceWorkers(idx) ! BlockWrite(off, block, sender)
         case _ => // Should never receive write request for finished piece
       }
 
-    // If piece is fully filled, will return data in form of Option[Array[Byte]],
+    // If piece is complete, will return data in form of Option[Array[Byte]],
     // else will be None.  Use this Option to try to write the data to disk.
     // Upon notification of complete write to disk, then move piece to Lru and
     // set piece state to Disk.  Do nothing if PieceState is still at Unfinished
@@ -165,19 +204,20 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
     case FW.ReadDone(idx, piece) =>
       pieceStates(idx) = Disk
       cachedPieces += (idx -> piece)
-      val requests = queuedRequests(idx)
-      queuedRequests -= idx
-      Future { fulfillRequests(idx, piece, requests) }
+      requestManager ! Fulfill(idx, piece)
 
     case FW.WriteDone(idx) =>
       flushingPieces -= idx
       pieceStates(idx) = Disk
 
+    case DiskWriteException(idx, msg, e) =>
+      println(msg)
+      println(e)
+
   }
 
   def writePiece(index: Int, offset: Int, piece: Array[Byte]): Unit = {
     implicit val timeout = Timeout(FileWriteTimeout)
-    val numTries = 3
 
     def tryWrite(count: Int): Unit = {
       val writeF = (fileWorker ? FW.Write(index, offset, piece)).mapTo[FW.WriteDone]
@@ -185,29 +225,14 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
         case Success(writeDoneMsg) =>
           self ! writeDoneMsg
         case Failure(e) =>
-          if (count < numTries) tryWrite(count + 1)
-          else self ! e
+          if (count < FileWriteTries)
+            tryWrite(count + 1)
+          else
+            self ! new DiskWriteException(index, "Could not write to disk", e)
       }
     }
 
     tryWrite(0)
-  }
-
-  // Update queued requests by adding to existing set of requests
-  def queueRequest(peer: ActorRef, index: Int, offset: Int, length: Int): Unit = {
-    val request = BlockRequest(peer, offset, length)
-    queuedRequests += (index -> (queuedRequests(index) + request))
-  }
-
-  // Fulfill all the queued requests for that particular piece
-  def fulfillRequests(
-      index: Int,
-      piece: Array[Byte],
-      requests: Set[BlockRequest]): Unit = {
-    requests foreach { case BlockRequest(peer, offset, length) =>
-      val bytes = ByteString.fromArray(piece, offset, length)
-      peer ! BT.Piece(index, offset, bytes)
-    }
   }
 
   def createPieceWorker(worker: ActorRef, index: Int, piece: Piece): ActorRef = {

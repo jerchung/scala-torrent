@@ -1,6 +1,9 @@
 package org.jerchung.torrent.actor
 
-import akka.actor.{ Actor, ActorRef, Props, Cancellable }
+import akka.actor.Actor
+import akka.actor.ActorRef
+import akka.actor.Cancellable
+import akka.actor.Props
 import akka.actor.PoisonPill
 import akka.actor.Stash
 import akka.io.{ IO, Tcp }
@@ -41,16 +44,17 @@ object Peer {
 // router actorRef is a PeerRouter actor which will forward the messages
 // to the correct actors
 class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
-    extends Actor
-    with Stash
-    with AutoInjectable {
+  extends Actor
+  with AutoInjectable {
 
   import context.dispatcher
   import context.system
   import BlockRequestor._
 
   val MaxRequestPipeline = 5
-  val protocol = context.actorOf(protocolProps)
+  val protocol = injectOptional [ActorRef](TorrentProtocolId) getOrElse {
+    context.actorOf(protocolProps)
+  }
 
   // Reference for a BlockRequestor
   var requestor: Option[ActorRef] = None
@@ -105,8 +109,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
   }
 
   def initiatedHandshake(testInfoHash:ByteString, testId: ByteString): Receive = {
-    case BT.HandshakeR(infoHash, peerId)
-        if (infoHash == testInfoHash && peerId == testId) =>
+    case BT.HandshakeR(infoHash, peerId) if (infoHash == testInfoHash && peerId == testId) =>
       router ! PeerM.Connected
       heartbeat()
       context.become(acceptBitfield)
@@ -190,18 +193,18 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
    * which will cause actor to return to recieve state.  Stash any message sent
    * from client for unstashing when returning to receive state.
    */
-  def choked: Receive = receiveOther orElse {
+  def choked(stashed: List[BT.Message]): Receive = receiveOther orElse {
     case BT.UnchokeR =>
-      unstashAll()
       requestor match {
         case None => router ! PeerM.ReadyForPiece(peerHas)
         case Some(req) => router ! PeerM.Resume(currentPieceIndex)
       }
+      stashed.reverse.foreach { receive }
       context.become(receive)
     case r: BT.Reply =>
       handleReply(r)
     case m: BT.Message =>
-      stash()
+      context.become(choked(m :: stashed))
   }
 
   // Composition of all the default receive behaviors
@@ -245,7 +248,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
         if (currentPieceIndex >= 0) {
           router ! PeerM.ChokedOnPiece(currentPieceIndex)
         }
-        context.become(choked)
+        context.become(choked(List[BT.Message]()))
 
       // Upon being unchoked, peer should send ready message to parent to decide
       // what piece to downoad
@@ -285,7 +288,7 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
   }
 
   // Returns actorRef of BlockRequestor Actor, also has depedency injection
-  // logic
+// logic
   def createBlockRequestor(index: Int, size: Int): ActorRef = {
     injectOptional [ActorRef](BlockRequestorId) getOrElse {
       context.actorOf(BlockRequestor.props(index, size))

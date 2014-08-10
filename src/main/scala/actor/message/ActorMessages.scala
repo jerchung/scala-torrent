@@ -53,6 +53,7 @@ object FW {
 object BT {
 
   val protocol = ByteString.fromString("BitTorrent protocol")
+  val reserved = ByteString(0, 0, 0, 0, 0, 0, 0, 0)
 
   // Take in an int and the # of bytes it should be represented by, return the
   // corresponding ByteString of the int with appropriate leading 0s
@@ -127,7 +128,6 @@ object BT {
   }
 
   case class Handshake(infoHash: ByteString, peerId: ByteString) extends Message {
-    private lazy val reserved = ByteString(0, 0, 0, 0, 0, 0, 0, 0)
     lazy val toByteString = ByteString(19) ++ protocol ++ reserved ++
       infoHash ++ peerId
   }

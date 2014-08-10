@@ -39,8 +39,8 @@ class PieceWorker(
   val hash = piece.hash
 
   lazy val bytes = ByteBuffer.allocate(pieceSize)
-  private var bytesWritten = 0
-  private val md = MessageDigest.getInstance("SHA-1")
+  var bytesWritten = 0
+  val md = MessageDigest.getInstance("SHA-1")
 
   def receive = {
     case FM.Read(idx, off, len) =>
@@ -48,17 +48,17 @@ class PieceWorker(
 
     case BlockWrite(off, block, peer) =>
       insertBlock(off, block)
-      val state =
-        if (isFilled && hashMatches)
-          Done
-        else if (isFilled)
-          Invalid
-        else
-          Unfinished
+      val state = if (isFilled && hashMatches)
+        Done
+      else if (isFilled)
+        Invalid
+      else
+        Unfinished
       val dataOption = state match {
         case Done =>
           val data = new Array[Byte](pieceSize)
-          bytes.array.copyToArray(data)
+          // Must copy because clearing ByteBuffer will also clear the array
+          bytes.get(data)
           Some(data)
         case _ => None
       }
@@ -69,7 +69,7 @@ class PieceWorker(
       bytesWritten = 0
   }
 
-  // Put block into buffer at offset then emit the number of bytes written
+  // Put block into buffer at offset then update the number of bytes written
   def insertBlock(offset: Int, block: ByteString): Unit = {
     val byteArray = block.toArray
     val numBytes = byteArray.length

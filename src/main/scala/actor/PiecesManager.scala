@@ -154,7 +154,7 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int)
     // Message sent from pieceChooser with valid index
     case ChosenPiece(idx, peer, possibles) if (idx >= 0) =>
       val size = pieceSize min (totalSize - (pieceSize * idx))
-      chokedPeers.get(idx) map { _ ! PeerM.ClearPiece }
+      chokedPeers.get(idx) foreach { _ ! PeerM.ClearPiece }
       chokedPeers -= idx
       peer ! PeerM.DownloadPiece(idx, size)
       requestedPieces += idx

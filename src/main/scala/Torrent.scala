@@ -73,7 +73,7 @@ class Torrent(
 
   val files: List[TorrentFile] = fileMode match {
     case Single => List(TorrentFile(info("length").asInstanceOf[Int], name))
-    case Multi => getMultipleFiles
+    case Multi => multipleFiles
   }
 
   // Total number of pieces
@@ -86,7 +86,7 @@ class Torrent(
     throw new TorrentError("Bencode piece sizes and totalSize do not agree")
   }
 
-  private lazy val getMultipleFiles: List[TorrentFile] = {
+  private lazy val multipleFiles: List[TorrentFile] = {
     val files = info("files").asInstanceOf[List[Map[String, Any]]]
     files map { f =>
       TorrentFile(

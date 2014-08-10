@@ -35,12 +35,13 @@ class ConvertibleByteString(bytes: ByteString) {
   def toBitSet: BitSet = {
     val builder = BitSet.newBuilder
     var idx = 0
-    for {
-      byte <- bytes
-      maskedByte = (byte & 0xFF)
-      offset <- (Constant.ByteSize - 1 to 0 by -1)
+    val bitRange = ((Constant.ByteSize - 1) to 0 by -1)
+    for (
+      byte <- bytes;
+      maskedByte = (byte & 0xFF);
+      offset <- bitRange;
       bit = (maskedByte >> offset) & 0x01
-    } yield {
+    ) {
       if (bit == 1) { builder += idx }
       idx += 1
     }

@@ -25,7 +25,7 @@ class PeerRouter(
     fileManager: ActorRef,
     peersManager: ActorRef,
     piecesManager: ActorRef)
-    extends Actor {
+  extends Actor {
 
   def receive = {
 

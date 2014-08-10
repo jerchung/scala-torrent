@@ -1,53 +1,71 @@
-/*package org.jerchung.torrent.actor
+package org.jerchung.torrent.actor
 
 import akka.actor.ActorSystem
 import akka.actor.Actor
 import akka.actor.ActorRef
 import akka.actor.Props
-import akka.actor.Scheduler
-import akka.actor.Cancellable
-import akka.testkit.TestActorRef
-import akka.testkit.TestKit
-import akka.testkit.TestProbe
-import akka.testkit.ImplicitSender
+import akka.testkit._
 import akka.util.ByteString
 import scala.collection.BitSet
 import org.scalatest._
 import org.jerchung.torrent.actor.message.BT
 import org.jerchung.torrent.actor.message.TorrentM
-import org.scalatest.mock._
-import org.mockito.Mockito._
-import org.mockito.Matchers._
-import org.hamcrest.core._
 import scala.concurrent.duration.FiniteDuration
+import akka.util.ByteString
+import com.escalatesoft.subcut.inject._
+import org.jerchung.torrent.dependency.BindingKeys._
+import org.jerchung.torrent.actor.Peer.PeerInfo
+import org.scalatest._
+import org.scalatest.mock.MockitoSugar
+import scala.language.postfixOps
+import scala.concurrent.duration._
 
 class PeerSpec(_sys: ActorSystem)
-    extends ActorSpec(_sys)
-    with MockitoSugar
-    with FunSpecLike {
+  extends ActorSpec(_sys)
+  with WordSpecLike
+  with MockitoSugar {
+
+  import NewBindingModule._
 
   def this() = this(ActorSystem("PeerSpec"))
 
-  trait PeerActor {
+  trait PeerBase {
+    val protocol = TestProbe()
+    val router = TestProbe()
+    val connection = TestProbe()
+    implicit val binding = newBindingModule { module =>
+      import module._
+      bind [ActorRef] idBy TorrentProtocolId toSingle protocol.ref
+    }
+    val protocolProps = TorrentProtocol.props(connection.ref)
     val peerId = ByteString(0, 0, 2, 3, 4, 9)
     val ownId = ByteString(1, 3, 5, 7, 8, 2)
     val port = 929
     val infoHash = ByteString(10, 23, 5, 7, 19, 10, 100)
     val ip = "localhost"
     val info = PeerInfo(Some(peerId), ownId, infoHash, ip, port)
-    val fileManager = TestProbe()
-    val connection = TestProbe()
-    val testParent = TestProbe()
-    val protocolProps = Props(new MockChild(connection.ref))
-    val peerProps = Props(new Peer(info, protocolProps, fileManager.ref)
-      with TestParent with TestScheduler {
-        val parent = testParent.ref
-        val scheduler = mockScheduler
-      }
-    )
+
+    // Used for expectNoMsg
+    val duration = 2 seconds
   }
 
-  // Set up for a peer actor in the normal receive state
+  trait PeerNoId extends PeerBase {
+    override val info = PeerInfo(None, ownId, infoHash, ip, port)
+    val peer = system.actorOf(Peer.props(info, protocolProps, router.ref))
+  }
+
+  trait PeerWithId extends PeerBase {
+    val peer = system.actorOf(Peer.props(info, protocolProps, router.ref))
+  }
+
+  trait ReceivingPeer extends PeerBase {
+    protocol.ignoreMsg({case m: BT.Handshake => true})
+    val peer = TestActorRef[Peer](Peer.props(info, protocolProps, router.ref))
+    val realPeer = peer.underlyingActor
+    realPeer.context.become(realPeer.receive)
+  }
+
+  /*// Set up for a peer actor in the normal receive state
   trait ReceivePeerActor extends PeerActor {
     connection.ignoreMsg({case m: BT.Handshake => true})
     val peer = TestActorRef[Peer](peerProps)
@@ -62,8 +80,69 @@ class PeerSpec(_sys: ActorSystem)
     val real = peer.underlyingActor
     real.context.become(real.initiatedHandshake)
   }
+*/
+  "A Peer with peerId provided" when {
 
-  describe("A Peer Actor") {
+    "first initialized" should {
+
+      "send a Handshake message" in new PeerWithId {
+        protocol.expectMsgClass(classOf[BT.Handshake])
+      }
+    }
+
+    "in default receive state" should {
+
+      "forward KeepAlive to protocol" in new ReceivingPeer{
+        peer ! BT.KeepAlive
+        protocol.receiveN(2, duration) foreach {
+          case BT.KeepAlive => true
+          case _ => fail
+        }
+      }
+
+      // "forward relevant messages to protocol" in new ReceivingPeerTest {
+      //   val messages = List[BT.Message](
+      //     BT.KeepAlive,
+      //     BT.Choke,
+      //     BT.Unchoke,
+      //     BT.Interested,
+      //     BT.NotInterested,
+      //     mock[BT.Bitfield],
+      //     mock[BT.Have],
+      //     mock[BT.Request],
+      //     mock[BT.Piece],
+      //     mock[BT.Cancel],
+      //     mock[BT.Port],
+      //     mock[BT.Handshake]
+      //   )
+      //   messages foreach { peer.receive }
+      //   torrentProtocol.expectMsg(BT.KeepAlive)
+      //   torrentProtocol.expectMsg(BT.Choke)
+      //   torrentProtocol.expectMsg(BT.Unchoke)
+      //   torrentProtocol.expectMsg(BT.Interested)
+      //   torrentProtocol.expectMsg(BT.NotInterested)
+      //   torrentProtocol.expectMsgClass(classOf[BT.Bitfield])
+      //   torrentProtocol.expectMsgClass(classOf[BT.Have])
+      //   torrentProtocol.expectMsgClass(classOf[BT.Request])
+      //   torrentProtocol.expectMsgClass(classOf[BT.Piece])
+      //   torrentProtocol.expectMsgClass(classOf[BT.Cancel])
+      //   torrentProtocol.expectMsgClass(classOf[BT.Port])
+      //   torrentProtocol.expectMsgClass(classOf[BT.Handshake])
+      // }
+    }
+  }
+
+  "A Peer without peerId provided" when {
+
+    "first initialized" should {
+
+      "not send a Handshake message" in new PeerNoId {
+        protocol.expectNoMsg(duration)
+      }
+    }
+  }
+
+  /*describe("A Peer Actor") {
 
     describe("when in a normal receive loop state") {
 
@@ -298,6 +377,6 @@ class PeerSpec(_sys: ActorSystem)
         }
       }
     }
-  }
+  } */
 
-}*/
+}

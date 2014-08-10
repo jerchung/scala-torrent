@@ -17,4 +17,6 @@ object BindingKeys {
   object PieceWorkerId extends BindingId
   object ReadAccumulatorId extends BindingId
   object WriteAccumulatorId extends BindingId
+  object TorrentProtocolId extends BindingId
+  object RequestManagerId extends BindingId
 }

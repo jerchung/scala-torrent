@@ -2,6 +2,7 @@ package org.jerchung.torrent.actor.message
 
 import akka.util.ByteString
 import org.scalatest._
+import scala.collection.BitSet
 import BT._
 
 class BTMessageSpec extends WordSpecLike {
@@ -31,7 +32,8 @@ class BTMessageSpec extends WordSpecLike {
       }
 
       "correctly convert for Bitfield" in {
-
+        val bitset = BitSet(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)
+        // val bitfield = Bitfield(
       }
     }
   }

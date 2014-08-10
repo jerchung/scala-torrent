@@ -33,6 +33,7 @@ class TorrentProtocol(connection: ActorRef) extends Actor { this: Parent =>
   def receive: Receive = {
     case msg: BT.Message => handleMessage(msg)
     case Tcp.Received(data) => handleReply(data)
+    // case Tcp.ConnectionClosed => handleClosed
   }
 
   // Handle each type of tcp peer message that client may want to send
