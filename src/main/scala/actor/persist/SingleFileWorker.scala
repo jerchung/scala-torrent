@@ -12,9 +12,6 @@ import org.jerchung.torrent.actor.message.BT
 import org.jerchung.torrent.actor.message.FM
 import org.jerchung.torrent.actor.message.FW
 import scala.concurrent._
-import ExecutionContext.Implicits.global
-import scala.util.Failure
-import scala.util.Success
 
 object SingleFileWorker {
   def props(name: String, pieceSize: Int, size: Int): Props = {

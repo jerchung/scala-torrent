@@ -125,16 +125,18 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
    * Bitfield must be first reply message sent to you from peer for it to be valid
    * Can also accept messages from client, but then stays in acceptBitfield
    * state
+   *
+   * Peer defaults to choked state afterwards
    */
   def acceptBitfield: Receive = receiveMessage orElse {
     case BT.BitfieldR(bitfield) =>
       peerHas |= bitfield
       router ! PeerM.PieceAvailable(Right(peerHas))
-      context.become(receive)
+      context.become(choked)
 
     case msg: BT.Reply =>
       receiveReply(msg)
-      context.become(receive)
+      context.become(choked)
   }
 
   // Default receive behavior for messages meant to be forwarded to peer
@@ -287,23 +289,19 @@ class Peer(info: PeerInfo, protocolProps: Props, router: ActorRef)
     }
   }
 
-  // Returns actorRef of BlockRequestor Actor, also has depedency injection
-// logic
   def createBlockRequestor(index: Int, size: Int): ActorRef = {
     injectOptional [ActorRef](BlockRequestorId) getOrElse {
       context.actorOf(BlockRequestor.props(index, size))
     }
   }
 
-  // Reset piece index to -1 and end requestor actor.  Clear all references
   def endCurrentPieceDownload(): Unit = {
     currentPieceIndex = -1
     requestor foreach { _ ! PoisonPill }
     requestor = None
   }
 
-  // Start off the scheduler to send keep-alive signals every 2 minutes and to
-  // check that keep-alive is being sent to itself from the peer
+  // TODO: Send an actual "No KeepAlive" case class message
   def heartbeat(): Unit = {
 
     def checkHeartbeat(): Unit = {

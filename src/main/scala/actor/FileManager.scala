@@ -76,9 +76,8 @@ object FileManager {
   // and a message
   case class DiskWriteException(
     index: Int,
-    message: String,
-    exception: Throwable)
-    extends Exception
+    message: String)
+    extends Exception(message)
 }
 
 /**
@@ -132,12 +131,12 @@ class FileManager(torrent: Torrent) extends Actor with AutoInjectable {
 
   // Actor to reply to peers with requested parts of pieces once the piece
   // has come back from disk
-  val requestManager =
-    injectOptional [ActorRef](RequestManagerId) getOrElse {
-      context.actorOf(RequestManager.props)
-    }
+  val requestManager = injectOptional [ActorRef](RequestManagerId) getOrElse {
+    context.actorOf(RequestManager.props)
+  }
 
-  // Array of actors which will write blocks to pieces (index -> ActorRef)
+  // Array of actors which will write blocks to pieces
+  // Index of actorRef within array corresponds to piece it's working on
   val pieceWorkers: Array[ActorRef] = {
     val pieceHashesGrouped = piecesHash.grouped(20).toList
 

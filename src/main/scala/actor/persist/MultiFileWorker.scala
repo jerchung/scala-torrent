@@ -65,9 +65,8 @@ object MultiFileWorker {
         blocks(blockIndex) = block
         val remaining = blockIndexes - sender
         if (remaining.isEmpty) {
-          val combinedBlock = blocks.foldLeft(mutable.ArrayBuffer[Byte]()) {
-            (buf, block) =>
-              buf ++= block
+          val combinedBlock = blocks.foldLeft(mutable.ArrayBuffer[Byte]()) { (buf, block) =>
+            buf ++= block
           }.toArray
           fileManager ! FW.ReadDone(index, combinedBlock)
           context stop self
@@ -136,8 +135,8 @@ class MultiFileWorker(files: List[TorrentFile], pieceSize: Int)
         val workerJobs = affectedFileJobs(offset, length)
         val blockIndexes = indexWorkers(workerJobs)
         val readAccumulator = createReadAccumulator(blockIndexes)
-        workerJobs foreach { wJ =>
-          wJ.tell(FW.Read(index, wJ.offset, wJ.length), readAccumulator)
+        workerJobs foreach { case WorkerJob(worker, off, len) =>
+          worker.tell(FW.Read(index, off, len), readAccumulator)
         }
       }
 
@@ -150,9 +149,9 @@ class MultiFileWorker(files: List[TorrentFile], pieceSize: Int)
           w + wj.worker
         }
         val writeAccumulator = createWriteAccumulator(workers)
-        workerJobs.foldLeft(block) { (chunk, wJ) =>
-          val (data, remaining) = chunk.splitAt(wJ.length)
-          wJ.tell(FW.Write(index, wJ.offset, data), writeAccumulator)
+        workerJobs.foldLeft(block) { case (chunk, WorkerJob(worker, off, len)) =>
+          val (data, remaining) = chunk.splitAt(len)
+          worker.tell(FW.Write(index, off, data), writeAccumulator)
           remaining
         }
       }
