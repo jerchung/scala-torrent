@@ -1,4 +1,4 @@
-package org.jerchung.torrent.actor
+package storrent.actor
 
 import akka.actor.Actor
 import akka.actor.ActorRef

@@ -1,4 +1,4 @@
-package org.jerchung.torrent.actor
+package storrent.actor
 
 import akka.actor.ActorSystem
 import akka.actor.Actor
@@ -13,8 +13,8 @@ import akka.testkit.ImplicitSender
 import akka.util.ByteString
 import scala.collection.BitSet
 import org.scalatest._
-import org.jerchung.torrent.actor.message.BT
-import org.jerchung.torrent.actor.message.TorrentM
+import storrent.actor.message.BT
+import storrent.actor.message.TorrentM
 import org.scalatest.mock._
 import org.mockito.Mockito._
 import org.mockito.Matchers._

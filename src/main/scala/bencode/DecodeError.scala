@@ -1,4 +1,4 @@
-package org.jerchung.torrent.bencode
+package storrent.bencode
 
 class BencodeError(msg:String) extends IllegalArgumentException(msg)
 case class DecodeError(msg: String) extends BencodeError(msg)

@@ -1,4 +1,4 @@
-package org.jerchung.torrent.actor
+package storrent.actor
 
 import akka.actor.ActorSystem
 import akka.actor.Actor
@@ -9,7 +9,7 @@ import akka.testkit.TestKit
 import akka.testkit.TestProbe
 import akka.testkit.TestActorRef
 import akka.util.ByteString
-import org.jerchung.torrent.actor.message.BT
+import storrent.actor.message.BT
 import scala.collection.BitSet
 import org.scalatest.fixture
 

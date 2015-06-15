@@ -1,4 +1,4 @@
-package org.jerchung.torrent.actor
+package storrent.actor
 
 import akka.actor.ActorSystem
 import akka.actor.Actor
@@ -11,7 +11,7 @@ import akka.testkit.TestKit
 import akka.testkit.TestProbe
 import akka.testkit.TestActorRef
 import java.net.InetSocketAddress
-import org.jerchung.torrent.actor.message.TorrentM
+import storrent.actor.message.TorrentM
 import org.scalatest.FunSpecLike
 
 class ConnectingPeerSpec(_sys: ActorSystem)

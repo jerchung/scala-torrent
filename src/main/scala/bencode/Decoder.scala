@@ -1,8 +1,8 @@
-package org.jerchung.torrent.bencode
+package storrent.bencode
 
 import scala.collection
 import akka.util.ByteString
-import org.jerchung.torrent.Convert._
+import storrent.Convert._
 
 /*
 Implemented using protocol described
@@ -14,77 +14,74 @@ https://wiki.theory.org/BitTorrentSpecification#Bencoding
 
 class Decoder {
 
-  //Tests if ascii value is digit
-  def isDigit(num: Byte): Boolean = num >= '0' & num <= '9'
+  def isDigit(num: Byte): Boolean = num >= '0' && num <= '9'
 
-  def decode(input: BufferedIterator[Byte]): Any = {
-    if (isDigit(input.head)) {
-      decodeByteString(input)
-    } else {
-      val next = input.next
-      next match {
-        case 'd' => decodeDictionary(input)
-        case 'l' => decodeList(input)
-        case 'i' => decodeInteger(input)
-        case _ => throw new DecodeError("Invalid Bencode format - got char " +
-          s"${next} when should have gotten d, l, i, or digit")
-      }
+  def decode(input: List[Byte]): Any = {
+    decodeInternal(input)._1
+  }
+
+  private def decodeInternal(input: List[Byte]): (Any, List[Byte]) = {
+    input match {
+      case 'd' :: bytes => decodeDictionary(bytes)
+      case 'l' :: bytes => decodeList(bytes)
+      case 'i' :: bytes => decodeInteger(bytes)
+      case d :: bytes if isDigit(d) => decodeByteString(d :: bytes)
+      case byte => throw new DecodeError("Invalid Bencode format - got char " +
+        s"${byte} when should have gotten d, l, i, or digit")
     }
   }
 
-  def decodeByteString(input: BufferedIterator[Byte]): ByteString = {
+  def decodeByteString(input: List[Byte]): (ByteString, List[Byte]) = {
 
-    def getStringLength(length: String = ""): Int = {
-      val next = input.next
-      next match {
-        case ':' => length.toInt
-        case _ => getStringLength(length + next.toChar)
+    def decodeLength(input: List[Byte], length: Int): (Int, List[Byte]) = {
+      input match {
+        case ':' :: bytes => (length, bytes)
+        case d :: bytes if isDigit(d) => decodeLength(bytes, (length * 10) + (d - 48))
+        case _ => throw new DecodeError("Non digit byte before getting ':' termination char")
       }
     }
 
-    val length = getStringLength()
-    ByteString.fromArray(input.take(length).toArray)
+    val (length, remaining) = decodeLength(input, 0)
+    val (stringBytes, tail) = remaining.splitAt(length)
+    val bytes = ByteString.fromArray(stringBytes.toArray)
+    (bytes, tail)
   }
 
   def decodeDictionary(
-    input: BufferedIterator[Byte],
-    resultMap: Map[String, Any] = Map()): Map[String, Any] = {
-    if (!input.hasNext) throw new DecodeError("No more input before termination char e")
-    input.head match {
-      case 'e' =>
-        input.next
-        resultMap
+    input: List[Byte],
+    result: Map[String, Any] = Map()): (Map[String, Any], List[Byte]) = {
+    input match {
+      case Nil =>
+        throw new DecodeError("No more input before termination char e")
+      case 'e' :: tail =>
+        (result, tail)
       case _ =>
-        //Implicit conversion takes care of ByteString -> String
-        val key = decode(input).asInstanceOf[ByteString].toChars
-        val value = decode(input)
-        decodeDictionary(input, resultMap + (key -> value))
+        val (key, keyRemaining) = decodeByteString(input)
+        val (value, remaining) = decodeInternal(keyRemaining)
+        decodeDictionary(remaining, result + (key.toChars -> value))
     }
   }
 
   def decodeList(
-    input: BufferedIterator[Byte],
-    resultList: List[Any] = List()): List[Any] = {
-    if (!input.hasNext) throw new DecodeError("No more input before termination char e")
-    input.head match {
-      case 'e' =>
-        input.drop(1)
-        //Reverse at end since we've been prepending for runtime reasons
-        resultList.reverse
+    input: List[Byte],
+    result: List[Any] = List()): (List[Any], List[Byte]) = {
+    input match {
+      case Nil =>
+        throw new DecodeError("No more input before termination char e")
+      case 'e' :: bytes =>
+        (result.reverse, bytes)
       case _ =>
-        val value = decode(input)
-        decodeList(input, value :: resultList)
+        val (value, bytes) = decodeInternal(input)
+        decodeList(bytes, value :: result)
     }
   }
 
-  // Read in string form of integer (Ex. "1393") char by char, then convert to Int
-  def decodeInteger(input: BufferedIterator[Byte], resultInt: String = ""): Int = {
-    if (!input.hasNext) throw new DecodeError("No more input before termination char e")
-    val next = input.next
-    next match {
-      case 'e' => resultInt.toInt
-      case c if (isDigit(c)) => decodeInteger(input, resultInt + c.toChar)
-      case _ => throw new DecodeError("Invalid integer bencode input")
+  def decodeInteger(input: List[Byte], result: Int = 0): (Int, List[Byte]) = {
+    input match {
+      case 'e' :: bytes => (result, bytes)
+      case b :: bytes if (isDigit(b)) => decodeInteger(bytes, result * 10 + (b - 48))
+      case b :: _ => throw new DecodeError(s"Hit invalid char $b before termination char 'e'")
+      case Nil => throw new DecodeError("Hit EOF before termination char 'e' in decoding integer")
     }
   }
 }

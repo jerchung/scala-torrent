@@ -1,6 +1,6 @@
 name :="torrent"
 
-scalaVersion in ThisBuild :="2.10.2"
+scalaVersion in ThisBuild :="2.10.4"
 
 version :="1.0"
 
@@ -16,7 +16,7 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-actor" % "2.2.3",
   "com.twitter" %% "util-collection" % "6.3.6",
   "com.github.nscala-time" %% "nscala-time" % "0.6.0",
-  "net.databinder.dispatch" %% "dispatch-core" % "0.11.0"
+  "org.scalaj" %% "scalaj-http" % "1.1.4"
 )
 
 libraryDependencies ++= Seq(

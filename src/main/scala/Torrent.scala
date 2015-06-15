@@ -1,15 +1,16 @@
-package org.jerchung.torrent
+package storrent
 
-import org.jerchung.torrent.bencode._
-import org.jerchung.torrent.Convert._
+import storrent.bencode._
+import storrent.Convert._
 import akka.util.ByteString
 import scala.io.Source
 import java.util.Date
 import java.security.MessageDigest
+import java.nio.file.{Files, Paths}
 
 sealed trait FileMode
 case object Single extends FileMode
-case object Multiple extends FileMode
+case object Multi extends FileMode
 
 case class TorrentFile(length: Int, path: String = "")
 
@@ -23,7 +24,9 @@ object Torrent {
     new Torrent(
       announce = torrent("announce").asInstanceOf[ByteString].toChars,
       info = torrent("info").asInstanceOf[Map[String, Any]],
-      creationDate = torrent.get("creation date").map { d => new Date(d.asInstanceOf[Int] * 1000.toLong) },
+      creationDate = torrent.get("creation date").map { d =>
+        new Date(d.asInstanceOf[Int] * 1000.toLong)
+      },
       comment = torrent.get("comment").map(_.asInstanceOf[ByteString].toChars),
       createdBy = torrent.get("created by").map(_.asInstanceOf[ByteString].toChars),
       encoding = torrent.get("encoding").map(_.asInstanceOf[ByteString].toChars)
@@ -31,10 +34,9 @@ object Torrent {
   }
 
   def fromFile(filename: String): Torrent = {
-    val source = Source.fromFile(filename, Charset)
-    val input: BufferedIterator[Byte] = source.map(_.toByte).toIterator.buffered
+    val bytes = Files.readAllBytes(Paths.get(filename))
+    val input: List[Byte] = bytes.toList
     val metaInfo = Bencode.decode(input)
-    source.close
     Torrent(metaInfo.asInstanceOf[Map[String, Any]])
   }
 
@@ -49,19 +51,19 @@ class Torrent(
     val encoding: Option[String]) {
 
   // Byte form of the string of the info_hash dictionary
-  val infoBytes: Array[Byte] = Bencode.encode(info).getBytes
+  val infoBytes: Array[Byte] = Bencode.encode(info)
 
   // SHA-1 hash of the info_hash dictionary needed for handshake
-  val infoHash = ByteString.fromArray(sha1(infoBytes))
+  val infoHash: Array[Byte] = sha1(infoBytes)
 
   // Provided SHA-1 hash of all pieces concatenated together
   val piecesHash = info("pieces").asInstanceOf[ByteString]
 
   // Number of bytes in each piece
-  val pieceSize = info("pieces length").asInstanceOf[Int]
+  val pieceSize = info("piece length").asInstanceOf[Int]
 
   // Torrent can have single or multiple files
-  val fileMode: FileMode = if (info contains "files") Multiple else Single
+  val fileMode: FileMode = if (info contains "files") Multi else Single
 
   /**
    * Can be either the name of the file (Single) or directory for files
@@ -70,8 +72,8 @@ class Torrent(
   val name: String = info("name").asInstanceOf[ByteString].toChars
 
   val files: List[TorrentFile] = fileMode match {
-    case Single   => List(TorrentFile(info("length").asInstanceOf[Int], name))
-    case Multiple => getMultipleFiles
+    case Single => List(TorrentFile(info("length").asInstanceOf[Int], name))
+    case Multi => getMultipleFiles
   }
 
   // Total number of pieces

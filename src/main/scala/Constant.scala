@@ -1,4 +1,4 @@
-package org.jerchung.torrent
+package storrent
 
 import scala.concurrent.duration._
 import scala.language.postfixOps

@@ -1,6 +1,6 @@
-package org.jerchung.torrent.bencode
+package storrent.bencode
 
-import scala.io.Source
+import java.nio.file.{Files, Paths}
 
 object Bencode {
 
@@ -8,18 +8,18 @@ object Bencode {
   lazy val encoder = new Encoder
 
   // Takes in parsed torrent file in iterator[byte] form
-  def decode(input: BufferedIterator[Byte]): Map[String, Any] = {
+  def decode(input: List[Byte]): Map[String, Any] = {
     decoder.decode(input).asInstanceOf[Map[String, Any]]
   }
 
-  def encode(input: Any): String = {
+  def encode(input: Any): Array[Byte] = {
     encoder.encode(input)
   }
 
   // For test purposes
   def decodeFile(filename: String): Any = {
-    val source = Source.fromFile(filename, "ISO-8859-1")
-    val input = source.map(_.toByte).toIterator.buffered
+    val bytes = Files.readAllBytes(Paths.get(filename))
+    val input: List[Byte] = bytes.toList
     decode(input)
   }
 }

@@ -1,4 +1,4 @@
-package org.jerchung.torrent.bencode
+package storrent.bencode
 
 import akka.util.ByteString
 import scala.language.implicitConversions
