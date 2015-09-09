@@ -1,6 +1,6 @@
 package storrent.peer
 
-import akka.actor.{ Actor, ActorRef, Props, Cancellable }
+import akka.actor.{ Actor, ActorRef, Props, Cancellable, ActorLogging }
 import akka.actor.PoisonPill
 import akka.actor.Stash
 import akka.io.{ IO, Tcp }
@@ -13,11 +13,12 @@ import scala.collection.BitSet
 import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.language.postfixOps
+import storrent.Convert._
 
-// import Peer.PeerInfo
+// import Peer.PeerConfig
 
 // This case class encapsulates the information needed to create a peer actor
-case class PeerInfo(
+case class PeerConfig(
   peerId: Option[ByteString],
   ownId: ByteString,
   infoHash: ByteString,
@@ -32,8 +33,8 @@ case object InitHandshake extends HandshakeState
 case object WaitHandshake extends HandshakeState
 
 object Peer {
-  def props(info: PeerInfo, connection: ActorRef, router: ActorRef): Props = {
-    Props(new Peer(info, connection, router) with Peer.AppCake)
+  def props(pConfig: PeerConfig, connection: ActorRef, router: ActorRef): Props = {
+    Props(new Peer(pConfig, connection, router) with Peer.AppCake)
   }
 
   trait Cake { this: Peer =>
@@ -57,8 +58,8 @@ object Peer {
 // One of these actors per peer
 // router actorRef is a PeerRouter actor which will forward the messages
 // to the correct actors
-class Peer(info: PeerInfo, connection: ActorRef, router: ActorRef)
-  extends Actor {
+class Peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef)
+  extends Actor with ActorLogging {
   this: Peer.Cake =>
 
   import context.dispatcher
@@ -74,12 +75,12 @@ class Peer(info: PeerInfo, connection: ActorRef, router: ActorRef)
   // downloaded
   var currentPieceIndex = -1
 
-  var peerId: Option[ByteString] = info.peerId
-  val ip: String                 = info.ip
-  val port: Int                  = info.port
-  val ownId: ByteString          = info.ownId
-  val infoHash: ByteString       = info.infoHash
-  val numPieces: Int             = info.numPieces
+  var peerId: Option[ByteString] = pConfig.peerId
+  val ip: String                 = pConfig.ip
+  val port: Int                  = pConfig.port
+  val ownId: ByteString          = pConfig.ownId
+  val infoHash: ByteString       = pConfig.infoHash
+  val numPieces: Int             = pConfig.numPieces
   var iHave: BitSet              = BitSet.empty
   var peerHas: BitSet            = BitSet.empty
 
@@ -92,16 +93,15 @@ class Peer(info: PeerInfo, connection: ActorRef, router: ActorRef)
   // Keep reference to KeepAlive sending task
   var keepAliveTask: Option[Cancellable] = None
 
-  // Depending on if peerId is None or Some, then that dictates whether this
-  // actor initiates a handshake with a peer, or waits for the peer to send a
-  // handshake over
+  // State depends on if the client connected to the peer or the peer is connecting
+  // through the tracker
   override def preStart(): Unit = {
-    info.handshake match {
+    pConfig.handshake match {
       case InitHandshake =>
         protocol ! BT.Handshake(infoHash, ownId)
-        context.become(initiatedHandshake)
+        context.become(handshake(initiatedHandshake))
       case WaitHandshake =>
-        context.become(waitingForHandshake)
+        context.become(handshake(waitingForHandshake))
     }
   }
 
@@ -109,31 +109,30 @@ class Peer(info: PeerInfo, connection: ActorRef, router: ActorRef)
     peerId foreach { id => router ! PeerM.Disconnected(id, peerHas) }
   }
 
+  def handshake(handshakeState: Receive): Receive = handshakeState orElse handshakeFail
+
+  def handshakeFail: Receive = {
+    case msg =>
+      log.warning(peerLog(s"Waiting for a handshake message for peer " +
+        s"got $msg instead.  Now stopping peer"))
+      context.stop(self)
+  }
 
   def waitingForHandshake: Receive = {
     case BT.HandshakeR(infoHash, peerId) if (infoHash == this.infoHash) =>
       protocol ! BT.Handshake(infoHash, ownId)
       this.peerId = Some(peerId)
-      router ! PeerM.Connected(info.copy(peerId = Some(peerId)))
+      router ! PeerM.Connected(pConfig.copy(peerId = Some(peerId)))
       heartbeat()
       context.become(acceptBitfield)
-
-    case _ => context stop self
   }
 
   def initiatedHandshake: Receive = {
     case BT.HandshakeR(infoHash, peerId) if (infoHash == this.infoHash) =>
-      println(peerId)
-      router ! PeerM.Connected(info.copy(peerId = Some(peerId)))
+      this.peerId = Some(peerId)
+      router ! PeerM.Connected(pConfig.copy(peerId = Some(peerId)))
       heartbeat()
       context.become(acceptBitfield)
-
-    /*
-     * Get anything besides a handshake reply when waiting for a handshake means
-     * that this peer must end itself
-     */
-    case _ =>
-      context stop self
   }
 
   /**
@@ -156,6 +155,7 @@ class Peer(info: PeerInfo, connection: ActorRef, router: ActorRef)
   // Default receive behavior for messages meant to be forwarded to peer
   def receiveMessage: Receive = {
     case m: BT.Message =>
+      // log.debug(peerLog(s"Handling message $m"))
       // Don't need to send KeepAlive message if already sending another message
       keepAliveTask.foreach { _.cancel }
       handleMessage(m)
@@ -165,17 +165,18 @@ class Peer(info: PeerInfo, connection: ActorRef, router: ActorRef)
   // Default receive behavior for messages from protocol
   def receiveReply: Receive = {
     case r: BT.Reply =>
+      // log.debug(peerLog(s"Received reply $r"))
       keepAlive = true
       handleReply(r)
   }
 
   // Default receive behavior for messages sent from other actors to peer
   def receiveOther: Receive = {
-
     // Let's download a piece
     // Create a new BlockRequestor actor which will fire off requests upon
     // construction
     case PeerM.DownloadPiece(idx, size) =>
+      log.debug(peerLog(s"Downloading piece $idx size: $size"))
       currentPieceIndex = idx
       requestor = Some(provider.blockRequestor(protocol, idx, size))
 
@@ -218,7 +219,9 @@ class Peer(info: PeerInfo, connection: ActorRef, router: ActorRef)
     message match {
       case BT.Choke => amChoking = true
       case BT.Unchoke => amChoking = false
-      case BT.NotInterested => amInterested = false
+      case BT.NotInterested =>
+        log.debug(peerLog(s"Not interested anymore $peerHas"))
+        amInterested = false
       case BT.Have(index) => iHave += index
       case BT.Bitfield(bitfield, numPieces) => iHave = bitfield
       case BT.Interested if peerInterested => shouldSend = false
@@ -263,6 +266,7 @@ class Peer(info: PeerInfo, connection: ActorRef, router: ActorRef)
 
       // A part of piece came in due to a request
       case BT.PieceR(idx, off, block) =>
+        log.debug(peerLog(s"Received block at piece index $idx offset $off"))
         peerId foreach { pid => router ! PeerM.Downloaded(pid, block.length) }
         router ! FM.Write(idx, off, block)
         requestor foreach { _ ! BlockDoneAndRequestNext(off + block.length) }
@@ -289,6 +293,7 @@ class Peer(info: PeerInfo, connection: ActorRef, router: ActorRef)
   def seedCheck(peerHas: BitSet): Unit = {
     if (peerHas.size == numPieces) {
       isSeed = true
+      log.debug(peerLog("Is Seed"))
       router ! PeerM.IsSeed
     }
   }
@@ -312,10 +317,16 @@ class Peer(info: PeerInfo, connection: ActorRef, router: ActorRef)
   }
 
   def sendHeartbeat(): Unit = {
-    keepAliveTask = Some(scheduler.scheduleOnce(1.5 minutes) {
+    keepAliveTask = Some(scheduler.scheduleOnce(1 minute) {
+      log.debug(peerLog("Sending KeepAlive"))
       protocol ! BT.KeepAlive
     })
   }
 
-
+  def peerLog(message: String): String = {
+    peerId match {
+      case Some(pid) => s"[Peer ${pid.toChars}] $message"
+      case None => message
+    }
+  }
 }

@@ -1,10 +1,10 @@
 package storrent.core
 
-import akka.actor.{ Actor, ActorRef, Props, Cancellable }
+import akka.actor.{ Actor, ActorLogging, ActorRef, Props, Cancellable }
 import akka.util.ByteString
 import storrent.Constant
 import storrent.message.{ TrackerM, BT, PeerM }
-import storrent.peer.PeerInfo
+import storrent.peer.PeerConfig
 import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.concurrent._
@@ -24,7 +24,7 @@ object PeersManager {
   case class OldPeer(peer: ActorRef)
   case class Broadcast(message: Any)
   case class StateUpdate(
-    peerInfos: Map[ActorRef, PeerInfo],
+    peerInfos: Map[ActorRef, PeerConfig],
     peerRates: Map[ActorRef, Float],
     seeds: Set[ActorRef]
   )
@@ -35,7 +35,7 @@ object PeersManager {
  * intervals.  Keeps track of download rate of peers. Peers get connected /
  * disconnected based on messages from TorrentClient
  */
-class PeersManager(state: ActorRef) extends Actor {
+class PeersManager(state: ActorRef) extends Actor with ActorLogging {
 
   import context.dispatcher
   import context.system
@@ -49,7 +49,7 @@ class PeersManager(state: ActorRef) extends Actor {
   // All currently connected Peers (actorRef -> Download Rate)
   // Need to differentiate between newly connected peers and old peers for unchoking
   // purposes
-  var peerInfos = Map[ActorRef, PeerInfo]()
+  var peerInfos = Map[ActorRef, PeerConfig]()
   var peerRates = Map[ActorRef, Float]()
   var newPeers = Set[ActorRef]()
   var seeds = Set[ActorRef]()
@@ -65,14 +65,14 @@ class PeersManager(state: ActorRef) extends Actor {
 
   def handle: Receive = {
 
-    case PeerM.Connected(peerInfo) =>
+    case PeerM.Connected(pConfig) =>
       val peer = sender
       newPeers += peer
       peerRates += (peer -> 0f)
       system.scheduler.scheduleOnce(newlyConnectedDuration) {
         self ! OldPeer(peer)
       }
-      peerInfos += (peer -> peerInfo)
+      peerInfos += (peer -> pConfig)
 
     case PeerM.Disconnected(_, peerHas) =>
       newPeers -= sender
@@ -90,6 +90,7 @@ class PeersManager(state: ActorRef) extends Actor {
       peerRates += (sender -> (peerRates(sender) + size.toFloat))
 
     case PeerM.PieceDone(i) =>
+      log.debug(s"Piece at index $i done")
       broadcast(BT.Have(i))
 
     case BT.NotInterestedR =>
@@ -103,7 +104,10 @@ class PeersManager(state: ActorRef) extends Actor {
 
     // Unchoke top NumUnchoked peers
     case Unchoke =>
-      val topKTuples = peerRates.toList.sortBy(- _._2).take(NumUnchoked)
+      val topKTuples = peerRates.toList
+                                .filter(_._2 > 0f)
+                                .sortBy(- _._2)
+                                .take(NumUnchoked)
       val chosen = topKTuples.map(_._1).toSet
       val toChoke = currentUnchoked &~ chosen
       chosen foreach { _ ! BT.Unchoke }

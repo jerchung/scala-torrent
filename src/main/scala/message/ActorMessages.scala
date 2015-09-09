@@ -8,7 +8,8 @@ import java.net.InetSocketAddress
 import scalaj.http._
 import storrent.Constant
 import storrent.Convert._
-import storrent.peer.PeerInfo
+import storrent.peer.HandshakeState
+import storrent.peer.PeerConfig
 
 // Tracker Client
 object TrackerM {
@@ -18,13 +19,19 @@ object TrackerM {
 
 // Torrent Client (TorrentM (TorrentMessage))
 object TorrentM {
-  case class Start(filename: String)
-  case class CreatePeer(connection: ActorRef, peerInfo: PeerInfo)
+  case object Start
+  case class CreatePeer(
+    connection: ActorRef,
+    peerId: Option[ByteString],
+    ip: String,
+    port: Int,
+    state: HandshakeState
+  )
 }
 
 object PeerM {
   case class Downloaded(id: ByteString, length: Int)
-  case class Connected(info: PeerInfo)
+  case class Connected(pConfig: PeerConfig)
   case class ReadyForPiece(peerHas: BitSet)
   case class Disconnected(id: ByteString, peerHas: BitSet)
   case class ChokedOnPiece(index: Int)

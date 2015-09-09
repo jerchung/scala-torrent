@@ -1,6 +1,6 @@
 package storrent.file
 
-import akka.actor.{Actor, ActorRef, Props}
+import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.pattern.ask
 import akka.util.ByteString
 import akka.util.Timeout
@@ -117,7 +117,8 @@ object FileManager {
  *
  * @torrent Torrent object passed in since it has many values
  */
-class FileManager(torrent: Torrent, folder: String) extends Actor { this: FileManager.Cake =>
+class FileManager(torrent: Torrent, folder: String)
+  extends Actor with ActorLogging { this: FileManager.Cake =>
 
   import FileManager._
   import FileManager.{FileWorker => FW}
@@ -199,6 +200,8 @@ class FileManager(torrent: Torrent, folder: String) extends Actor { this: FileMa
     case BlockWriteDone(idx, totalOffset, state, peer, dataOption) =>
       state match {
         case Done =>
+          log.debug(s"Piece at index $idx complete, inserting piece into offset " +
+            totalOffset)
           pieceStates(idx) = Done
           dataOption foreach { data =>
             fileWorker ! FW.Write(idx, totalOffset, ByteString.fromArray(data))

@@ -16,7 +16,8 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-actor" % "2.2.3",
   "com.twitter" %% "util-collection" % "6.3.6",
   "com.github.nscala-time" %% "nscala-time" % "0.6.0",
-  "org.scalaj" %% "scalaj-http" % "1.1.4"
+  "org.scalaj" %% "scalaj-http" % "1.1.4",
+  "com.github.scopt" %% "scopt" % "3.3.0"
 )
 
 libraryDependencies ++= Seq(

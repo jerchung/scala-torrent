@@ -62,9 +62,6 @@ class PieceWorker(
           Some(data)
         case _ => None
       }
-      println(state)
-      println(bytesWritten)
-      println(pieceSize)
       sender ! BlockWriteDone(index, totalOffset, state, peer, dataOption)
 
     case ClearPieceData =>

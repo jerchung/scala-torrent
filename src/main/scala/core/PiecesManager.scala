@@ -1,7 +1,7 @@
 package storrent.core
 
 import akka.actor.PoisonPill
-import akka.actor.{Actor, ActorRef, Props}
+import akka.actor.{Actor, ActorLogging, ActorRef, Props}
 import akka.util.ByteString
 import storrent.message.{ TorrentM, TrackerM, BT, PeerM }
 import scala.annotation.tailrec
@@ -14,7 +14,6 @@ import scala.util.Random
 import Core._
 
 object PiecesManager {
-
   def props(numPieces: Int, pieceSize: Int, totalSize: Int, state: ActorRef): Props = {
     Props(new PiecesManager(numPieces, pieceSize, totalSize, state) with AppParent)
   }
@@ -28,7 +27,7 @@ object PiecesManager {
  * download.
  */
 class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int, state: ActorRef)
-    extends Actor { this: Parent =>
+    extends Actor with ActorLogging { this: Parent =>
 
   import context.dispatcher
   import PiecesManager._
@@ -53,9 +52,11 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int, state: Actor
     // Choose a piece for the peer
     case PeerM.ReadyForPiece(peerHas) =>
       val peer = sender
-      val possibles = peerHas &~ (completedPieces | requestedPieces)
-      val idx = choosePiece(possibles, sortedPieces)
+      val inFlight = completedPieces | requestedPieces
+      val possibles = peerHas &~ inFlight
+      val idx = choosePiece(possibles, sortedWantedPieces(inFlight))
       if (idx < 0) {
+        log.debug("Sending NOT INTERESTED")
         peer ! BT.NotInterested
       } else {
         val size = pieceSize min (totalSize - (pieceSize * idx))
@@ -65,7 +66,6 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int, state: Actor
 
     // Update frequency of pieces
     case msg @ PeerM.PieceAvailable(available) =>
-      println(msg)
       val interested: Boolean = available match {
         case Right(bitfield) =>
           bitfield.foreach { i => pieceCounts(i) += 1 }
@@ -77,10 +77,12 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int, state: Actor
       }
 
       if (interested) { sender ! BT.Interested }
+      // log.debug(s"Got piece availability $msg")
+      // log.debug(s"Current availability state: $pieceCounts")
 
     // Upon peer disconnect, update frequency of lost pieces
     case PeerM.Disconnected(peerId, peerHas) =>
-      peerHas foreach { i => pieceCounts -= 1 }
+      peerHas foreach { i => pieceCounts(i) -= 1 }
 
     // Put piece back into pool for selection for peer download
     case PeerM.ChokedOnPiece(idx) =>
@@ -92,6 +94,7 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int, state: Actor
 
     case PeerM.PieceDone(idx) =>
       completedPieces += idx
+      log.debug(s"${numPieces - completedPieces.size} pieces remaining")
 
     case PeerM.PieceInvalid(idx) =>
       requestedPieces -= idx
@@ -130,6 +133,10 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int, state: Actor
     rarest(RarePieceJitter)
   }
 
-  // List of piece indexes sorted by increasing count
-  def sortedPieces = pieceCounts.toList.sortBy(_._2).map(_._1)
+
+  def sortedWantedPieces(unwanted: BitSet): List[Int] = {
+    pieceCounts.toList.filter { case (i, c) => !unwanted.contains(i) }
+                      .sortBy(_._2)
+                      .map(_._1)
+  }
 }

@@ -6,6 +6,13 @@ import akka.actor.Scheduler
 import akka.io.IO
 import akka.io.Tcp
 
+// Hold config information for all actors
+case class Config(
+  torrentFile: String,
+  folderPath: String,
+  port: Int
+)
+
 /**
  * Allows for testability so that messages that actors send to their parents
  * can be intercepted whil still allowing for a direct reference to the actor

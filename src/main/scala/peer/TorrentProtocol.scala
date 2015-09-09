@@ -1,7 +1,7 @@
 package storrent.peer
 
 import storrent.message.{ PeerM, BT }
-import akka.actor.{ Actor, ActorRef, Props, PoisonPill }
+import akka.actor.{ Actor, ActorLogging, ActorRef, Props, PoisonPill }
 import akka.io.Tcp
 import akka.util.ByteString
 import java.net.InetSocketAddress
@@ -21,10 +21,11 @@ object TorrentProtocol {
  * This actor servers to translate between ByteStrings and TCP Wire Messages.
  * Responses are sent to peer
  */
-class TorrentProtocol(peer: ActorRef, connection: ActorRef) extends Actor {
+class TorrentProtocol(peer: ActorRef, connection: ActorRef)
+  extends Actor with ActorLogging {
 
   override def preStart(): Unit = {
-    connection ! Tcp.Register(self)
+    connection ! Tcp.Register(self, keepOpenOnPeerClosed = true)
   }
 
   override def postRestart(reason: Throwable): Unit = {}
@@ -35,18 +36,14 @@ class TorrentProtocol(peer: ActorRef, connection: ActorRef) extends Actor {
   def handle(remaining: ByteString): Receive = {
     case msg: BT.Message => handleMessage(msg)
     case Tcp.Received(data) => handleReply(remaining ++ data)
-    case msg => println(msg)
+    case m =>
+      log.warning(s"TorrentProtocol Received unsupported message $m")
   }
 
   // Handle each type of tcp peer message that client may want to send
   // Create ByteString based off message type and send to tcp connection
   // TODO - BITFIELD
   def handleMessage(msg: BT.Message) = {
-    println(msg)
-    msg match {
-      case msg: BT.Request => println(msg.toBytes)
-      case _ => ()
-    }
     connection ! Tcp.Write(msg.toBytes)
   }
 

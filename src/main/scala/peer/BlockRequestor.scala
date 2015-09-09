@@ -27,13 +27,13 @@ class BlockRequestor(protocol: ActorRef, idx: Int, size: Int)
 
   import BlockRequestor.Message._
 
-  val MaxRequestPipeline = 1
-  // var offset = 0
+  val MaxRequestPipeline = 10
+  var offset = 0
   var pipeline = Set[Int]()
 
   // Want to fill up pipeline with requests at initialization
   override def preStart(): Unit = {
-    pipelineRequests(MaxRequestPipeline, 0)
+    offset = pipelineRequests(MaxRequestPipeline, 0)
   }
 
   def receive = {
@@ -42,7 +42,7 @@ class BlockRequestor(protocol: ActorRef, idx: Int, size: Int)
     // offset is incremented to
     case BlockDoneAndRequestNext(off) =>
       pipeline -= off
-      pipelineRequests(1, off)
+      offset = pipelineRequests(1, offset)
 
     // Re-request any straggling blocks which were not actually requested due
     // to peer choking
@@ -56,13 +56,14 @@ class BlockRequestor(protocol: ActorRef, idx: Int, size: Int)
   // Request either up to max requests or until the end of the piece is reached
   // Increment offset as you go and add requested offset to pipeline set
   @tailrec
-  private def pipelineRequests(maxRequests: Int, offset: Int, count: Int = 0): Unit = {
+  private def pipelineRequests(maxRequests: Int, offset: Int, count: Int = 0): Int = {
     if (count < maxRequests && offset < size) {
       val requestSize = Constant.BlockSize min (size - offset)
       protocol ! BT.Request(idx, offset, requestSize)
-      // pipeline += offset
-      // offset += requestSize
-      pipelineRequests(maxRequests, offset, count + 1)
+      pipeline += offset
+      pipelineRequests(maxRequests, offset + requestSize, count + 1)
+    } else {
+      offset
     }
   }
 

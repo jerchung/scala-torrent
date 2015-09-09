@@ -39,8 +39,6 @@ class TrackerClient extends Actor {
     res onComplete {
       case Success(res) => requestor ! TrackerM.Response(res)
       case Failure(e) =>
-        println("OH NOO")
-        println(e)
         self ! new Exception("Tracker http request failed")
     }
   }

@@ -26,7 +26,9 @@ class PeerRouter(
   def receive = {
 
     // Messages to be sent to both peersManager and piecesManager
-    case msg @ (_: PeerM.Disconnected | _: PeerM.Connected) =>
+    case msg @ (_: PeerM.Disconnected |
+                _: PeerM.Connected |
+                _: PeerM.PieceDone) =>
       peersManager forward msg
       piecesManager forward msg
 
@@ -42,7 +44,6 @@ class PeerRouter(
                 _: PeerM.ReadyForPiece |
                 _: PeerM.ChokedOnPiece |
                 _: PeerM.PieceAvailable |
-                _: PeerM.PieceDone |
                 _: PeerM.PieceInvalid) =>
       piecesManager forward msg
 
