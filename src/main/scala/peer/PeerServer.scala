@@ -5,17 +5,17 @@ import akka.io.{ IO, Tcp }
 import java.net.InetSocketAddress
 
 import storrent.core.Core
+import storrent.core.PeersManager
 import storrent.Constant
-import storrent.message.TorrentM
 import storrent.peer
 
 object PeerServer {
-  def props(port: Int): Props = {
-    Props(new PeerServer(port) with Core.AppParent with Core.AppTcpManager)
+  def props(port: Int, router: ActorRef, manager: ActorRef): Props = {
+    Props(new PeerServer(port, router, manager) with Core.AppParent with Core.AppTcpManager)
   }
 }
 
-class PeerServer(port: Int) extends Actor with ActorLogging {
+class PeerServer(port: Int, router: ActorRef, manager: ActorRef) extends Actor with ActorLogging {
     this: Core.Parent with Core.TcpManager =>
 
   override def preStart(): Unit = {
@@ -34,6 +34,6 @@ class PeerServer(port: Int) extends Actor with ActorLogging {
       val ip = remote.getHostName
       val port = remote.getPort
       log.info(s"Peer connecting from $ip:$port")
-      parent ! TorrentM.CreatePeer(sender, None, ip, port, peer.WaitHandshake)
+      manager ! PeersManager.ConnectedPeer(sender, ip, port, None, peer.WaitHandshake, router)
   }
 }

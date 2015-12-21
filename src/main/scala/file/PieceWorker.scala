@@ -31,7 +31,6 @@ class PieceWorker(
   extends Actor {
 
   import PieceWorker._
-  import FileManager.{FileWorker => FW}
 
   val totalOffset = piece.offset
   val pieceSize = piece.size
@@ -42,8 +41,8 @@ class PieceWorker(
   val md = MessageDigest.getInstance("SHA-1")
 
   def receive = {
-    case FM.Read(idx, off, len) =>
-      fileWorker forward FW.Read(idx, totalOffset, pieceSize)
+    case msg: FM.Read =>
+      fileWorker forward msg
 
     case BlockWrite(off, block, peer) =>
       bytesWritten += insertBlock(off, block)

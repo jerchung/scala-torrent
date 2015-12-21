@@ -83,4 +83,21 @@ object Convert {
       ByteString.fromString(string)
     }
   }
+
+  implicit class ConvertibleNumber(n: Long) {
+    def toByteString(numBytes: Int): ByteString = {
+
+      @tailrec
+      def helper(curr: Long, remaining: Int, res: ByteString): ByteString = {
+        if (remaining > 0) {
+          val byte = curr & 0xFF
+          helper(curr >> 4, remaining - 1, byte.toByte +: res)
+        } else {
+          res
+        }
+      }
+
+      helper(n, numBytes, ByteString())
+    }
+  }
 }

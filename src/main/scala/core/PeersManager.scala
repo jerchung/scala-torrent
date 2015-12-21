@@ -3,8 +3,7 @@ package storrent.core
 import akka.actor.{ Actor, ActorLogging, ActorRef, Props, Cancellable }
 import akka.util.ByteString
 import storrent.Constant
-import storrent.message.{ TrackerM, BT, PeerM }
-import storrent.peer.PeerConfig
+import storrent.message.{ BT, PeerM, TorrentM }
 import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.concurrent._
@@ -12,11 +11,14 @@ import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.duration._
 import scala.language.postfixOps
 import scala.util.Random
+import storrent.Constant
+import storrent.Torrent
+import storrent.peer._
 
 object PeersManager {
 
-  def props(state: ActorRef): Props = {
-    Props(new PeersManager(state))
+  def props(state: ActorRef, torrent: Torrent): Props = {
+    Props(new PeersManager(state, torrent))
   }
 
   case object Unchoke
@@ -28,6 +30,21 @@ object PeersManager {
     peerRates: Map[ActorRef, Float],
     seeds: Set[ActorRef]
   )
+
+  case class ConnectingPeer(
+    ip: String,
+    port: Int,
+    peerId: Option[ByteString],
+    router: ActorRef
+  )
+  case class ConnectedPeer(
+    connection: ActorRef,
+    ip: String,
+    port: Int,
+    peerId: Option[ByteString],
+    handshake: HandshakeState,
+    router: ActorRef
+  )
 }
 
 /*
@@ -35,11 +52,13 @@ object PeersManager {
  * intervals.  Keeps track of download rate of peers. Peers get connected /
  * disconnected based on messages from TorrentClient
  */
-class PeersManager(state: ActorRef) extends Actor with ActorLogging {
+class PeersManager(state: ActorRef, torrent: Torrent)
+  extends Actor
+  with ActorLogging {
 
   import context.dispatcher
   import context.system
-  import PeersManager._
+  import PeersManager.{ Unchoke, OptimisticUnchoke, OldPeer, Broadcast, StateUpdate }
 
   val unchokeFrequency: FiniteDuration = 10 seconds
   val optimisticUnchokeFrequency: FiniteDuration = 30 seconds
@@ -55,6 +74,7 @@ class PeersManager(state: ActorRef) extends Actor with ActorLogging {
   var seeds = Set[ActorRef]()
   var interestedPeers = Set[ActorRef]()
   var currentUnchoked = Set[ActorRef]()
+  var peerAddresses = Set[String]()
 
   override def preStart(): Unit = {
     scheduleUnchoke()
@@ -64,6 +84,21 @@ class PeersManager(state: ActorRef) extends Actor with ActorLogging {
   def receive = handle andThen update
 
   def handle: Receive = {
+    case PeersManager.ConnectingPeer(ip, port, peerId, router)
+        if !peerAddresses.contains(s"${ip}:${port}") =>
+      context.actorOf(ConnectingPeer.props(ip, port, peerId, router, self))
+
+    case PeersManager.ConnectedPeer(connection, ip, port, peerId, handshake, router) =>
+      val config = PeerConfig(
+        peerId,
+        ByteString(Constant.ID),
+        ByteString.fromArray(torrent.infoHash),
+        ip,
+        port,
+        torrent.numPieces,
+        handshake
+      )
+      sender ! context.actorOf(Peer.props(config, connection, router))
 
     case PeerM.Connected(pConfig) =>
       val peer = sender
@@ -73,12 +108,14 @@ class PeersManager(state: ActorRef) extends Actor with ActorLogging {
         self ! OldPeer(peer)
       }
       peerInfos += (peer -> pConfig)
+      peerAddresses += s"${pConfig.ip}:${pConfig.port}"
 
-    case PeerM.Disconnected(_, peerHas) =>
+    case PeerM.Disconnected(_, peerHas, ip, port) =>
       newPeers -= sender
       peerRates -= sender
       currentUnchoked -= sender
       interestedPeers -= sender
+      peerAddresses -= s"${ip}:${port}"
 
     case PeerM.IsSeed =>
       seeds += sender
@@ -161,14 +198,14 @@ class PeersManager(state: ActorRef) extends Actor with ActorLogging {
     def selectHelper(
         peerProbabilities: Vector[(ActorRef, Float)],
         cutoff: Float): Option[ActorRef] = {
-      if (peerProbabilities.isEmpty) {
-        None
-      } else {
-        val (peer, probability) = peerProbabilities.head
-        if (cutoff < probability)
-          Some(peer)
-        else
-          selectHelper(peerProbabilities.tail, cutoff - probability)
+      peerProbabilities.headOption match {
+        case Some((peer, probability)) =>
+          if (cutoff < probability)
+            Some(peer)
+          else
+            selectHelper(peerProbabilities.tail, cutoff - probability)
+        case None =>
+          None
       }
     }
 

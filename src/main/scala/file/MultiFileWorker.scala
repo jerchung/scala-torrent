@@ -10,7 +10,7 @@ import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import storrent.message.FM
 import storrent.TorrentFile
-import storrent.file.FileManager.{FileWorker => FW}
+import storrent.file.{ FileWorker => FW }
 import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.concurrent._
@@ -20,27 +20,28 @@ object MultiFileWorker {
   def props(
       files: List[TorrentFile],
       pieceSize: Int,
-      folder: String): Props = {
-    Props(new MultiFileWorker(files, pieceSize, folder) with AppParent with AppCake)
+      folder: String,
+      totalSize: Int): Props = {
+    Props(new MultiFileWorker(files, pieceSize, folder, totalSize) with AppParent with AppCake)
   }
 
   trait Cake { this: MultiFileWorker =>
     def provider: Provider
     trait Provider {
-      def tallyReads(fileManager: ActorRef, blockIndexes: Map[ActorRef, Int]): ActorRef
+      def tallyReads(fileManager: ActorRef, numExpected: Int, index: Int): ActorRef
       def tallyWrites(fileManager: ActorRef, writers: Set[ActorRef]): ActorRef
-      def singleFileWorker(path: String, pieceSize: Int): ActorRef
+      def singleFileWorker(path: String, pieceSize: Int, fileSize: Int): ActorRef
     }
   }
 
   trait AppCake extends Cake { this: MultiFileWorker =>
     override object provider extends Provider {
-      def tallyReads(fileManager: ActorRef, blockIndexes: Map[ActorRef, Int]) =
-        context.actorOf(TallyReads.props(fileManager, blockIndexes))
+      def tallyReads(fileManager: ActorRef, numExpected: Int, index: Int) =
+        context.actorOf(TallyReads.props(fileManager, numExpected, index))
       def tallyWrites(fileManager: ActorRef, writers: Set[ActorRef]) =
         context.actorOf(TallyWrites.props(fileManager, writers))
-      def singleFileWorker(path: String, pieceSize: Int) =
-        context.actorOf(SingleFileWorker.props(path, pieceSize))
+      def singleFileWorker(path: String, pieceSize: Int, fileSize: Int) =
+        context.actorOf(SingleFileWorker.props(path, pieceSize, fileSize))
     }
   }
 
@@ -48,7 +49,7 @@ object MultiFileWorker {
 
   // Offset here means offset WITHIN THE FILE, not within all the files as a
   // whole
-  case class WorkerJob(worker: ActorRef, offset: Int, length: Int) {
+  case class WorkerJob(worker: ActorRef, offset: Int, length: Int, part: Int) {
     def tell(msg: Any, sender: ActorRef): Unit = { worker.tell(msg, sender) }
   }
 
@@ -58,36 +59,38 @@ object MultiFileWorker {
   object TallyReads {
     def props(
         fileManager: ActorRef,
-        blockIndexes: Map[ActorRef, Int]): Props = {
-      Props(new TallyReads(fileManager, blockIndexes))
+        numExpected: Int,
+        index: Int): Props = {
+      Props(new TallyReads(fileManager, numExpected, index))
     }
   }
 
   class TallyReads(
       fileManager: ActorRef,
-      blockIndexes: Map[ActorRef, Int])
+      numExpected: Int,
+      index: Int)
       extends Actor {
 
-    val numExpected = blockIndexes.size
-    val blocks = new Array[Array[Byte]](numExpected)
+    var dones = List[FW.ReadDone]()
 
-    def receive = tally(blockIndexes)
+    def receive = tally(numExpected)
 
-    def tally(blockIndexes: Map[ActorRef, Int]): Receive = {
+    def tally(left: Int): Receive = {
       // the index argument in ReadDone is the index of the piece this block
       // is a part of, not the index of the block itself within the piece
-      case FW.ReadDone(index, block) if (blockIndexes.contains(sender)) =>
-        val blockIndex = blockIndexes(sender)
-        blocks(blockIndex) = block
-        val remaining = blockIndexes - sender
-        if (remaining.isEmpty) {
-          val combinedBlock = blocks.foldLeft(mutable.ArrayBuffer[Byte]()) { (buf, block) =>
-            buf ++= block
-          }.toArray
-          fileManager ! FW.ReadDone(index, combinedBlock)
-          context stop self
+      case d: FW.ReadDone =>
+        dones = d :: dones
+        val rem = left - 1
+        if (rem == 0) {
+          val combinedBlock = dones.sortBy { case FW.ReadDone(part, _) => part }
+                                  .map { case FW.ReadDone(_, b) => b}
+                                  .foldLeft(mutable.ArrayBuffer[Byte]()) { (buf, block) =>
+                                    buf ++= block
+                                  }.toArray
+          fileManager ! FM.ReadDone(index, combinedBlock)
+          context.stop(self)
         } else {
-          context.become(tally(remaining))
+          context.become(tally(rem))
         }
     }
 
@@ -111,7 +114,7 @@ object MultiFileWorker {
       case FW.WriteDone(index) =>
         val remaining = writers - sender
         if (remaining.isEmpty) {
-          fileManager ! FW.WriteDone(index)
+          fileManager ! FM.WriteDone(index)
           context.stop(self)
         } else {
           context.become(tally(remaining))
@@ -124,7 +127,7 @@ object MultiFileWorker {
 /*
  * Parent MUST be FileManager
  */
-class MultiFileWorker(files: List[TorrentFile], pieceSize: Int, folder: String)
+class MultiFileWorker(files: List[TorrentFile], pieceSize: Int, folder: String, totalSize: Int)
   extends Actor { this: MultiFileWorker.Cake with Parent =>
 
   import MultiFileWorker._
@@ -134,42 +137,33 @@ class MultiFileWorker(files: List[TorrentFile], pieceSize: Int, folder: String)
     WrappedFileWorker(
       f.path,
       f.length,
-      provider.singleFileWorker(folder + "/" + f.path, pieceSize)
+      provider.singleFileWorker(folder + "/" + f.path, pieceSize, f.length)
     )
   }
 
   // Msgs sent from fileManager, forwarded to SingleFileWorker
   def receive = {
     // Actually reads data from disk
-    case FW.Read(index, offset, length) =>
-      val requestor = sender
-      val workerJobs = affectedFileJobs(offset, length)
-      val blockIndexes = indexWorkers(workerJobs)
-      val tallyReads = provider.tallyReads(parent, blockIndexes)
-      workerJobs foreach { case WorkerJob(worker, off, len) =>
-        worker.tell(FW.Read(index, off, len), tallyReads)
+    case FM.Read(index, offset, length) =>
+      val totalOffset = index * pieceSize + offset
+      val workerJobs = affectedFileJobs(totalOffset, length)
+      val tallyReads = provider.tallyReads(parent, workerJobs.size, index)
+      workerJobs foreach { case WorkerJob(worker, off, len, part) =>
+        worker.tell(FW.Read(off, len, part), tallyReads)
       }
 
     // Actually flushes data to disk
-    case FW.Write(index, offset, block) =>
-      val requestor = sender
-      val workerJobs = affectedFileJobs(offset, block.size)
+    case FM.Write(index, offset, block) =>
+      val totalOffset = index * pieceSize + offset
+      val workerJobs = affectedFileJobs(totalOffset, block.size)
       val workers = workerJobs.map { _.worker }.toSet
       val tallyWrites = provider.tallyWrites(parent, workers)
-      workerJobs.foldLeft(block) { case (chunk, WorkerJob(worker, off, len)) =>
+      workerJobs.foldLeft(block) { case (chunk, WorkerJob(worker, off, _, len)) =>
         val (data, remaining) = chunk.splitAt(len)
         worker.tell(FW.Write(index, off, data), tallyWrites)
         remaining
       }
 
-  }
-
-  def indexWorkers(workerJobs: List[WorkerJob]): Map[ActorRef, Int] = {
-    workerJobs.foldLeft((0, Map[ActorRef, Int]())) {
-      case ((idx, blockIndexes), workerJob) =>
-        val entry = (workerJob.worker -> idx)
-        (idx + 1, blockIndexes + entry)
-    }._2
   }
 
   /*
@@ -185,25 +179,26 @@ class MultiFileWorker(files: List[TorrentFile], pieceSize: Int, folder: String)
     def fileJobsHelper(
         fileWorkers: List[WrappedFileWorker],
         position: Int,
+        part: Int,
         affected: List[WorkerJob]): List[WorkerJob] = {
       fileWorkers match {
         case Nil => affected.reverse
         case WrappedFileWorker(path, length, worker) :: more =>
           val end = position + length
           if (end < targetStart) {
-            fileJobsHelper(more, end, affected)
+            fileJobsHelper(more, end, part, affected)
           } else if (position >= targetStop) {
             affected.reverse
           } else {
-            val offset = if (targetStart > position) position else 0
-            val jobLength = (length - offset) min (targetStop - position)
-            val workerJob = WorkerJob(worker, offset, jobLength)
-            fileJobsHelper(more, end, workerJob :: affected)
+            val offset = (targetStart - position) max 0
+            val jobLength = (length - offset) min (targetStop - offset)
+            val workerJob = WorkerJob(worker, offset, jobLength, part)
+            fileJobsHelper(more, end, part + 1, workerJob :: affected)
           }
       }
     }
 
-    fileJobsHelper(singleFileWorkers, 0, List[WorkerJob]())
+    fileJobsHelper(singleFileWorkers, 0, 0, List[WorkerJob]())
   }
 
 }

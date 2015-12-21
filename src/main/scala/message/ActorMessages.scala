@@ -10,30 +10,24 @@ import storrent.Constant
 import storrent.Convert._
 import storrent.peer.HandshakeState
 import storrent.peer.PeerConfig
+import storrent.tracker.TrackerInfo
 
 // Tracker Client
 object TrackerM {
-  case class Request(announce: String, request: Map[String, String])
+  case class Request(announce: String, trackerInfo: TrackerInfo)
   case class Response(res: HttpResponse[Array[Byte]])
 }
 
 // Torrent Client (TorrentM (TorrentMessage))
 object TorrentM {
   case object Start
-  case class CreatePeer(
-    connection: ActorRef,
-    peerId: Option[ByteString],
-    ip: String,
-    port: Int,
-    state: HandshakeState
-  )
 }
 
 object PeerM {
   case class Downloaded(id: ByteString, length: Int)
   case class Connected(pConfig: PeerConfig)
   case class ReadyForPiece(peerHas: BitSet)
-  case class Disconnected(id: ByteString, peerHas: BitSet)
+  case class Disconnected(id: ByteString, peerHas: BitSet, ip: String, port: Int)
   case class ChokedOnPiece(index: Int)
   case class DownloadPiece(index: Int, size: Int)
   case class Resume(index: Int)
@@ -48,6 +42,8 @@ object PeerM {
 object FM {
   case class Read(index: Int, offset: Int, length: Int)
   case class Write(index: Int, offset: Int, block: ByteString)
+  case class ReadDone(index: Int, block: Array[Byte])
+  case class WriteDone(index: Int)
 }
 
 // Peer Wire TCP Protocol

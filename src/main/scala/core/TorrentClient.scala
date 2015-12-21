@@ -13,6 +13,7 @@ import storrent.Constant
 import storrent.Convert._
 import storrent.Torrent
 import storrent.TorrentError
+import storrent.tracker._
 import storrent.peer._
 import storrent.file._
 import scala.annotation.tailrec
@@ -31,20 +32,17 @@ object TorrentClient {
       def fileManager(torrent: Torrent, folder: String): ActorRef
       def piecesManager(numPieces: Int, pieceSize: Int, totalSize: Int): ActorRef
       def peerRouter(fileManager: ActorRef, peersManager: ActorRef, piecesManager: ActorRef): ActorRef
-      def connectingPeer(ip: String, port: Int, peerId: Option[ByteString]): ActorRef
-      def peerServer(port: Int): ActorRef
-      def peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef): ActorRef
+      def peerServer(port: Int, router: ActorRef, manager: ActorRef): ActorRef
+      def peersManager(state: ActorRef, torrent: Torrent): ActorRef
     }
     def provider: Provider
     def trackerClient: ActorRef
-    def peersManager: ActorRef
     def state: ActorRef
   }
 
   trait AppCake extends Cake { this: TorrentClient =>
     lazy val trackerClient = context.actorOf(TrackerClient.props)
     lazy val state = context.actorOf(PrintActor.props)
-    lazy val peersManager = context.actorOf(PeersManager.props(state))
     override object provider extends Provider {
       def fileManager(torrent: Torrent, folder: String) = context.actorOf(FileManager.props(torrent, folder))
       def piecesManager(numPieces: Int, pieceSize: Int, totalSize: Int) =
@@ -60,12 +58,10 @@ object TorrentClient {
           peersManager,
           piecesManager
         ))
-      def connectingPeer(ip: String, port: Int, peerId: Option[ByteString]): ActorRef =
-        context.actorOf(ConnectingPeer.props(ip, port, peerId))
-      def peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef) =
-        context.actorOf(Peer.props(pConfig, connection, router)): ActorRef
-      def peerServer(port: Int): ActorRef =
-        context.actorOf(PeerServer.props(port))
+      def peerServer(port: Int, router: ActorRef, manager: ActorRef): ActorRef =
+        context.actorOf(PeerServer.props(port, router, manager))
+      def peersManager(state: ActorRef, torrent: Torrent): ActorRef =
+        context.actorOf(PeersManager.props(state, torrent))
     }
   }
 }
@@ -86,6 +82,7 @@ class TorrentClient(config: Config) extends Actor with ActorLogging {
     torrent.pieceSize,
     torrent.totalSize
   )
+  val peersManager = provider.peersManager(state, torrent)
   val peerRouter = provider.peerRouter(fileManager, peersManager, piecesManager)
 
   override def preStart(): Unit = {
@@ -104,21 +101,9 @@ class TorrentClient(config: Config) extends Actor with ActorLogging {
         case Some(reason) =>
           throw new TorrentError(reason.asInstanceOf[ByteString].toChars)
         case None =>
-          provider.peerServer(config.port)
+          provider.peerServer(config.port, peerRouter, peersManager)
           connectPeers(res)
       }
-
-    case TorrentM.CreatePeer(connection, peerId, ip, port, state) =>
-      val peerConfig = PeerConfig(
-        peerId,
-        ByteString(Constant.ID),
-        ByteString.fromArray(torrent.infoHash),
-        ip,
-        port,
-        torrent.numPieces,
-        state
-      )
-      provider.peer(peerConfig, connection, peerRouter)
   }
 
   // Link default receives
@@ -126,20 +111,20 @@ class TorrentClient(config: Config) extends Actor with ActorLogging {
 
   def startTorrent(): Unit = {
     logTorrentInfo()
-    val params = Map[String, String](
-      "info_hash" -> urlBinaryEncode(torrent.infoHash.toArray),
-      "peer_id" -> Constant.ID,
-      "port" -> config.port.toString,
-      "uploaded" -> "0",
-      "downloaded" -> "0",
-      "left" -> "0",
-      "numwant" -> "10",
-      "compact" -> "1",
-      "event" -> "started"
+    val trackerInfo = TrackerInfo(
+      infoHash = torrent.infoHash,
+      peerId = Constant.ID,
+      port = config.port,
+      uploaded = 0,
+      downloaded = 0,
+      left = 0,
+      numWant = 10,
+      compact = 1,
+      event = "started"
     )
 
     // Will get TrackerM.Response back
-    trackerClient ! TrackerM.Request(torrent.announce, params)
+    trackerClient ! TrackerM.Request(torrent.announce, trackerInfo)
   }
 
   def logTorrentInfo(): Unit = {
@@ -172,7 +157,7 @@ class TorrentClient(config: Config) extends Actor with ActorLogging {
       log.info(s"Connecting to peer at ip: $ip, port: $port, peerId: $peerId")
       val id = ByteString(Constant.ID)
       val infoHash = ByteString.fromArray(torrent.infoHash)
-      provider.connectingPeer(ip, port, peerId)
+      peersManager ! PeersManager.ConnectingPeer(ip, port, peerId, peerRouter)
     }
   }
 
@@ -192,10 +177,5 @@ class TorrentClient(config: Config) extends Actor with ActorLogging {
       val peerId = p("peer id").asInstanceOf[ByteString]
       (ip ,port, Some(peerId))
     }
-  }
-
-  // Encode all bytes in %nn format (% prepended hex form)
-  def urlBinaryEncode(bytes: Array[Byte]): String = {
-    bytes.map("%" + "%02X".format(_)).mkString
   }
 }

@@ -17,21 +17,6 @@ import storrent.Convert._
 
 // import Peer.PeerConfig
 
-// This case class encapsulates the information needed to create a peer actor
-case class PeerConfig(
-  peerId: Option[ByteString],
-  ownId: ByteString,
-  infoHash: ByteString,
-  ip: String,
-  port: Int,
-  numPieces: Int,
-  handshake: HandshakeState
-)
-
-sealed trait HandshakeState
-case object InitHandshake extends HandshakeState
-case object WaitHandshake extends HandshakeState
-
 object Peer {
   def props(pConfig: PeerConfig, connection: ActorRef, router: ActorRef): Props = {
     Props(new Peer(pConfig, connection, router) with Peer.AppCake)
@@ -106,7 +91,7 @@ class Peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef)
   }
 
   override def postStop(): Unit = {
-    peerId foreach { id => router ! PeerM.Disconnected(id, peerHas) }
+    peerId foreach { id => router ! PeerM.Disconnected(id, peerHas, ip, port) }
   }
 
   def handshake(handshakeState: Receive): Receive = handshakeState orElse handshakeFail

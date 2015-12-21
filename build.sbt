@@ -17,7 +17,9 @@ libraryDependencies ++= Seq(
   "com.twitter" %% "util-collection" % "6.3.6",
   "com.github.nscala-time" %% "nscala-time" % "0.6.0",
   "org.scalaj" %% "scalaj-http" % "1.1.4",
-  "com.github.scopt" %% "scopt" % "3.3.0"
+  "com.github.scopt" %% "scopt" % "3.3.0",
+  "io.spray" %% "spray-can" % "1.3.3",
+  "io.spray" %% "spray-routing" % "1.3.3"
 )
 
 libraryDependencies ++= Seq(

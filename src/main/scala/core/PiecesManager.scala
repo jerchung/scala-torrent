@@ -81,7 +81,7 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int, state: Actor
       // log.debug(s"Current availability state: $pieceCounts")
 
     // Upon peer disconnect, update frequency of lost pieces
-    case PeerM.Disconnected(peerId, peerHas) =>
+    case PeerM.Disconnected(_, peerHas, _, _) =>
       peerHas foreach { i => pieceCounts(i) -= 1 }
 
     // Put piece back into pool for selection for peer download
@@ -135,7 +135,7 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int, state: Actor
 
 
   def sortedWantedPieces(unwanted: BitSet): List[Int] = {
-    pieceCounts.toList.filter { case (i, c) => !unwanted.contains(i) }
+    pieceCounts.toList.filterNot { case (i, c) => unwanted.contains(i) }
                       .sortBy(_._2)
                       .map(_._1)
   }

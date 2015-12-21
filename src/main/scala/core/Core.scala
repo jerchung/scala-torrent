@@ -2,9 +2,7 @@ package storrent.core
 
 import akka.actor.Actor
 import akka.actor.ActorRef
-import akka.actor.Scheduler
-import akka.io.IO
-import akka.io.Tcp
+import akka.io.{ IO, Tcp, UdpConnected }
 
 // Hold config information for all actors
 case class Config(
@@ -33,4 +31,10 @@ object Core {
     import context.system
     val tcpManager = IO(Tcp)
   }
+  // trait UdpManager { this: Actor =>
+  //   def udpManager: ActorRef
+  // }
+  // trait AppUdpManager extends UdpManager { this: Actor =>
+  //   val udpManager = IO(UdpConnected)
+  // }
 }

@@ -7,10 +7,7 @@ import akka.util.Timeout
 import com.twitter.util.LruMap
 import java.nio.ByteBuffer
 import java.security.MessageDigest
-import storrent.message.BT
-import storrent.message.FM._
-import storrent.message.PeerM
-import storrent.file._
+import storrent.message.{ BT, FM, PeerM }
 import storrent.Torrent
 import storrent.{ Single, Multi }
 import scala.annotation.tailrec
@@ -42,29 +39,21 @@ object FileManager {
         case Single =>
           context.actorOf(SingleFileWorker.props(
             s"$folder/${torrent.name}",
-            torrent.pieceSize
+            torrent.pieceSize,
+            torrent.totalSize
           ))
         case Multi =>
           context.actorOf(MultiFileWorker.props(
             torrent.files,
             pieceSize,
-            folder
+            folder,
+            torrent.totalSize
           ))
       }
 
       def pieceWorker(worker: ActorRef, index: Int, piece: Piece) =
         context.actorOf(PieceWorker.props(worker, index, piece))
     }
-  }
-
-  // Messages to be used internally between FileManager and Storage worker
-  // the offset specified here is the total offset within all the files
-  // calculated from index * pieceSize, not the offset within the piece itself
-  object FileWorker {
-    case class Read(index: Int, totalOffset: Int, length: Int)
-    case class Write(index: Int, totalOffset: Int, block: ByteString)
-    case class ReadDone(index: Int, piece: Array[Byte])
-    case class WriteDone(index: Int)
   }
 
   case class BlockRequest(peer: ActorRef, offset: Int, length: Int)
@@ -121,7 +110,7 @@ class FileManager(torrent: Torrent, folder: String)
   extends Actor with ActorLogging { this: FileManager.Cake =>
 
   import FileManager._
-  import FileManager.{FileWorker => FW}
+  import storrent.file.{ FileWorker => FW }
   import PieceWorker._
   import RequestManager._
   import context.dispatcher
@@ -169,14 +158,14 @@ class FileManager(torrent: Torrent, folder: String)
   def receive = {
 
     // Piece is already cached :)
-    case Read(idx, off, length) if ((cachedPieces contains idx) ||
+    case FM.Read(idx, off, length) if ((cachedPieces contains idx) ||
                                     (flushingPieces contains idx)) =>
       val data = cachedPieces.getOrElse(idx, flushingPieces(idx))
       val block = ByteString.fromArray(data, off, length)
       sender ! BT.Piece(idx, off, block)
 
     // Piece is not cached :(
-    case msg @ Read(idx, off, length) =>
+    case msg @ FM.Read(idx, off, length) =>
       pieceStates(idx) match {
         case Disk =>
           requestManager ! Queue(sender, idx, off, length)
@@ -187,7 +176,7 @@ class FileManager(torrent: Torrent, folder: String)
         case _ => // Do nothing (should not get here)
       }
 
-    case Write(idx, off, block) =>
+    case FM.Write(idx, off, block) =>
       pieceStates(idx) match {
         case Unfinished => pieceWorkers(idx) ! BlockWrite(off, block, sender)
         case _ => // Should never receive write request for finished piece
@@ -200,11 +189,11 @@ class FileManager(torrent: Torrent, folder: String)
     case BlockWriteDone(idx, totalOffset, state, peer, dataOption) =>
       state match {
         case Done =>
-          log.debug(s"Piece at index $idx complete, inserting piece into offset " +
+          log.debug(s"Piece at index $idx complete, inserting piece into total offset " +
             totalOffset)
           pieceStates(idx) = Done
           dataOption foreach { data =>
-            fileWorker ! FW.Write(idx, totalOffset, ByteString.fromArray(data))
+            fileWorker ! FM.Write(idx, 0, ByteString.fromArray(data))
             flushingPieces += (idx -> data)
             cachedPieces += (idx -> data)
           }
@@ -216,12 +205,12 @@ class FileManager(torrent: Torrent, folder: String)
         case _ =>
       }
 
-    case FW.ReadDone(idx, piece) =>
+    case FM.ReadDone(idx, piece) =>
       pieceStates(idx) = Disk
       cachedPieces += (idx -> piece)
       requestManager ! Fulfill(idx, piece)
 
-    case FW.WriteDone(idx) =>
+    case FM.WriteDone(idx) =>
       flushingPieces -= idx
       pieceStates(idx) = Disk
 
