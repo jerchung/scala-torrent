@@ -18,7 +18,7 @@ object PiecesManager {
     Props(new PiecesManager(numPieces, pieceSize, totalSize, state) with AppParent)
   }
 
-  case class StateUpdate(pieceCounts: Map[Int, Int], completedPieces: BitSet)
+  case class Progress(pieceCounts: Map[Int, Int], completedPieces: BitSet, inProgressPieces: BitSet)
 }
 
 /*
@@ -45,7 +45,7 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int, state: Actor
   def receive = handle andThen update
 
   def update: Receive = {
-    case _ => state ! StateUpdate(pieceCounts.toMap, completedPieces)
+    case _ => state ! Progress(pieceCounts.toMap, completedPieces, requestedPieces)
   }
 
   def handle: Receive = {
@@ -54,7 +54,7 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int, state: Actor
       val peer = sender
       val inFlight = completedPieces | requestedPieces
       val possibles = peerHas &~ inFlight
-      val idx = choosePiece(possibles, sortedWantedPieces(inFlight))
+      val idx = choosePiece(possibles)
       if (idx < 0) {
         log.debug("Sending NOT INTERESTED")
         peer ! BT.NotInterested
@@ -85,7 +85,7 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int, state: Actor
       peerHas foreach { i => pieceCounts(i) -= 1 }
 
     // Put piece back into pool for selection for peer download
-    case PeerM.ChokedOnPiece(idx) =>
+    case PeerM.PieceAborted(idx) =>
       requestedPieces -= idx
 
     // Peer is connected, send a bitfield message
@@ -100,43 +100,16 @@ class PiecesManager(numPieces: Int, pieceSize: Int, totalSize: Int, state: Actor
       requestedPieces -= idx
   }
 
-  def choosePiece(possibles: BitSet, pieces: List[Int]): Int = {
-    /* Perform the jittering of choosing from k of the rarest pieces whose
-     * indexes are contained in possibles
-     * Return the index of the chosen piece
-     * Return -1 if no possibilities to choose
-     */
-    def rarest(k: Int): Int = {
-      val availablePiecesBuffer = mutable.ArrayBuffer[Int]()
-
-      @tailrec
-      def populateRarePieces(pieces: List[Int], count: Int): Unit = {
-        if (count <= k && pieces.nonEmpty) {
-          val idx = pieces.head
-          if (possibles.contains(idx)) {
-            availablePiecesBuffer += idx
-          }
-          populateRarePieces(pieces.tail, count + 1)
-        }
-      }
-
-      populateRarePieces(pieces, 0)
-      val chosenPieces = availablePiecesBuffer.toArray
-      if (chosenPieces.isEmpty) {
-        -1
-      } else {
-        val index = Random.nextInt(k min chosenPieces.size)
-        chosenPieces(index)
-      }
+  def choosePiece(possibles: BitSet): Int = {
+    val jitterIndexes = possibles
+                      .toArray
+                      .sortBy(pieceCounts.getOrElse(_, 0))
+                      .take(RarePieceJitter)
+    if (jitterIndexes.isEmpty) {
+      -1
+    } else {
+      val random = Random.nextInt(jitterIndexes.size)
+      jitterIndexes(random)
     }
-
-    rarest(RarePieceJitter)
-  }
-
-
-  def sortedWantedPieces(unwanted: BitSet): List[Int] = {
-    pieceCounts.toList.filterNot { case (i, c) => unwanted.contains(i) }
-                      .sortBy(_._2)
-                      .map(_._1)
   }
 }

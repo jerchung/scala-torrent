@@ -4,7 +4,7 @@ import akka.actor._
 import akka.util.ByteString
 import java.nio.ByteBuffer
 import java.security.MessageDigest
-import storrent.message.FM
+import storrent.file.{ FileWorker => FW }
 
 object PieceWorker {
   def props(fileWorker: ActorRef, index: Int, piece: Piece): Props = {
@@ -41,7 +41,7 @@ class PieceWorker(
   val md = MessageDigest.getInstance("SHA-1")
 
   def receive = {
-    case msg: FM.Read =>
+    case msg: FW.Read =>
       fileWorker forward msg
 
     case BlockWrite(off, block, peer) =>
@@ -58,7 +58,13 @@ class PieceWorker(
           // Must copy because clearing ByteBuffer will also clear the array
           bytes.rewind()
           bytes.get(data)
+          bytes.clear()
+          md.reset()
           Some(data)
+        case Invalid =>
+          bytes.clear()
+          md.reset()
+          None
         case _ => None
       }
       sender ! BlockWriteDone(index, totalOffset, state, peer, dataOption)

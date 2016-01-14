@@ -1,9 +1,11 @@
 package storrent.tracker
 
-import scalaj.http._
-import storrent.bencode.Bencode
 import storrent.message.{ TrackerM, TorrentM }
 import akka.actor.{Actor, Props, ActorLogging }
+import akka.stream.ActorMaterializer
+import akka.http.scaladsl.Http
+import akka.http.scaladsl.model._
+
 import scala.util.{ Success, Failure }
 import scala.concurrent._
 
@@ -13,6 +15,8 @@ object TrackerClient {
 
 class TrackerClient extends Actor with ActorLogging {
   import context.dispatcher
+
+  implicit val materializer = ActorMaterializer()
 
   def receive = {
     case TrackerM.Request(url, trackerInfo) =>
@@ -28,21 +32,21 @@ class TrackerClient extends Actor with ActorLogging {
   // Sends request to tracker, sends response back to sender
   def requestHttp(announceUrl: String, trackerInfo: TrackerInfo): Unit = {
     val requestor = sender
-    // Need to manually build the query params because scalaj-http .params method
-    // will urlencode the % symbols in the info_hash to %25
-    val query = trackerInfo.toStringMap.foldLeft(List[String]()) { case (q, (k, v)) =>
-      s"$k=$v" :: q
-    }.mkString("&")
+    // Don't want to percent encode '%' to '%25' so use raw query
+    val trackerParams = trackerInfo.toStringMap.toList.map { case (k, v) => s"$k=$v" }
+    val uri = Uri(announceUrl).withRawQueryString(trackerParams.mkString("&"))
+    val responseF: Future[HttpResponse] = Http(context.system).singleRequest(HttpRequest(uri = uri))
 
-    log.debug(s"""Tracker GET request: ${announceUrl + "?"  + query}""")
+    log.info(s"Tracker http request: ${uri.toString}")
 
-    val req = Future { Http(announceUrl + "?" + query).timeout(1000, 5000) }
-    val res = req.map { _.asBytes }
+    val dataF = for {
+      res <- responseF
+      entity <- res.entity.toStrict(1000, materializer)
+    } yield entity.getData
 
-    res onComplete {
-      case Success(res) => requestor ! TrackerM.Response(res)
-      case Failure(e) =>
-        self ! new Exception("Tracker http request failed")
+    dataF.onComplete {
+      case Success(data) => requestor ! TrackerM.Response(data)
+      case Failure(e) => self ! new Exception("Tracker http request failed")
     }
   }
 

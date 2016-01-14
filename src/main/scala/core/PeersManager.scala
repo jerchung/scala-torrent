@@ -25,11 +25,6 @@ object PeersManager {
   case object OptimisticUnchoke
   case class OldPeer(peer: ActorRef)
   case class Broadcast(message: Any)
-  case class StateUpdate(
-    peerInfos: Map[ActorRef, PeerConfig],
-    peerRates: Map[ActorRef, Float],
-    seeds: Set[ActorRef]
-  )
 
   case class ConnectingPeer(
     ip: String,
@@ -45,6 +40,12 @@ object PeersManager {
     handshake: HandshakeState,
     router: ActorRef
   )
+
+  case class Progress(
+    peerInfos: Map[ActorRef, PeerConfig],
+    peerRates: Map[ActorRef, Float],
+    seeds: Set[ActorRef]
+  )
 }
 
 /*
@@ -58,7 +59,7 @@ class PeersManager(state: ActorRef, torrent: Torrent)
 
   import context.dispatcher
   import context.system
-  import PeersManager.{ Unchoke, OptimisticUnchoke, OldPeer, Broadcast, StateUpdate }
+  import PeersManager.{ Unchoke, OptimisticUnchoke, OldPeer, Broadcast, Progress}
 
   val unchokeFrequency: FiniteDuration = 10 seconds
   val optimisticUnchokeFrequency: FiniteDuration = 30 seconds
@@ -88,7 +89,7 @@ class PeersManager(state: ActorRef, torrent: Torrent)
         if !peerAddresses.contains(s"${ip}:${port}") =>
       context.actorOf(ConnectingPeer.props(ip, port, peerId, router, self))
 
-    case PeersManager.ConnectedPeer(connection, ip, port, peerId, handshake, router) =>
+    case PeersManager.ConnectedPeer(protocol, ip, port, peerId, handshake, router) =>
       val config = PeerConfig(
         peerId,
         ByteString(Constant.ID),
@@ -98,7 +99,7 @@ class PeersManager(state: ActorRef, torrent: Torrent)
         torrent.numPieces,
         handshake
       )
-      sender ! context.actorOf(Peer.props(config, connection, router))
+      context.actorOf(Peer.props(config, protocol, router))
 
     case PeerM.Connected(pConfig) =>
       val peer = sender
@@ -116,6 +117,7 @@ class PeersManager(state: ActorRef, torrent: Torrent)
       currentUnchoked -= sender
       interestedPeers -= sender
       peerAddresses -= s"${ip}:${port}"
+      seeds -= sender
 
     case PeerM.IsSeed =>
       seeds += sender
@@ -123,7 +125,7 @@ class PeersManager(state: ActorRef, torrent: Torrent)
       interestedPeers -= sender
       currentUnchoked -= sender
 
-    case PeerM.Downloaded(_, size) if (peerRates contains sender) =>
+    case PeerM.Downloaded(_, size) if peerRates.contains(sender) =>
       peerRates += (sender -> (peerRates(sender) + size.toFloat))
 
     case PeerM.PieceDone(i) =>
@@ -171,7 +173,7 @@ class PeersManager(state: ActorRef, torrent: Torrent)
   }
 
   def update: Receive = {
-    case _ => state ! StateUpdate(peerInfos, peerRates, seeds)
+    case _ => state ! Progress(peerInfos, peerRates, seeds)
   }
 
   def broadcast(message: Any): Unit = peerRates.keys foreach { _ ! message }

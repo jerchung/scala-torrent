@@ -12,17 +12,22 @@ import scala.annotation.tailrec
 import scala.collection.BitSet
 
 object TorrentProtocol {
-  def props(peer: ActorRef, connection: ActorRef): Props = {
-    Props(new TorrentProtocol(peer, connection))
+  def props(connection: ActorRef, subscribers: Set[ActorRef] = Set()): Props = {
+    Props(new TorrentProtocol(connection, subscribers))
   }
+
+  case class Subscribe(subscriber: ActorRef)
+  case class Unsubscribe(subscriber: ActorRef)
 }
 
 /**
  * This actor servers to translate between ByteStrings and TCP Wire Messages.
  * Responses are sent to peer
  */
-class TorrentProtocol(peer: ActorRef, connection: ActorRef)
-  extends Actor with ActorLogging {
+class TorrentProtocol(connection: ActorRef, var subscribers: Set[ActorRef] = Set())
+    extends Actor with ActorLogging {
+
+  import TorrentProtocol._
 
   override def preStart(): Unit = {
     connection ! Tcp.Register(self, keepOpenOnPeerClosed = true)
@@ -36,6 +41,11 @@ class TorrentProtocol(peer: ActorRef, connection: ActorRef)
   def handle(remaining: ByteString): Receive = {
     case msg: BT.Message => handleMessage(msg)
     case Tcp.Received(data) => handleReply(remaining ++ data)
+    case Subscribe(s) => subscribers += s
+    case Unsubscribe(s) => subscribers -= s
+    case _: Tcp.ConnectionClosed =>
+      log.debug("Connection closed")
+      context.stop(self)
     case m =>
       log.warning(s"TorrentProtocol Received unsupported message $m")
   }
@@ -79,7 +89,7 @@ class TorrentProtocol(peer: ActorRef, connection: ActorRef)
 
       msg match {
         case Some(m) =>
-          peer ! m
+          subscribers.foreach { _ ! m }
           handleReply(data.drop(length + 4))
         case None => ()
       }

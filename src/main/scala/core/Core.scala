@@ -4,9 +4,11 @@ import akka.actor.Actor
 import akka.actor.ActorRef
 import akka.io.{ IO, Tcp, UdpConnected }
 
+import storrent.Torrent
+
 // Hold config information for all actors
 case class Config(
-  torrentFile: String,
+  torrent: Torrent,
   folderPath: String,
   port: Int
 )

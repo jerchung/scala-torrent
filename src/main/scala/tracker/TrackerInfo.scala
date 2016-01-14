@@ -16,7 +16,7 @@ case class TrackerInfo(
   event: String) {
 
   // For params to send to http tracker
-  def toStringMap(): Map[String, String] = Map(
+  def toStringMap: Map[String, String] = Map(
     "info_hash" -> urlBinaryEncode(infoHash),
     "peer_id" -> peerId,
     "port" -> port.toString,

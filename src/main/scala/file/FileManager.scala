@@ -1,6 +1,6 @@
 package storrent.file
 
-import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.actor.{Actor, ActorLogging, ActorRef, PoisonPill, Props}
 import akka.pattern.ask
 import akka.util.ByteString
 import akka.util.Timeout
@@ -158,8 +158,8 @@ class FileManager(torrent: Torrent, folder: String)
   def receive = {
 
     // Piece is already cached :)
-    case FM.Read(idx, off, length) if ((cachedPieces contains idx) ||
-                                    (flushingPieces contains idx)) =>
+    case FM.Read(idx, off, length) if (cachedPieces.contains(idx) ||
+                                        flushingPieces.contains(idx)) =>
       val data = cachedPieces.getOrElse(idx, flushingPieces(idx))
       val block = ByteString.fromArray(data, off, length)
       sender ! BT.Piece(idx, off, block)
@@ -168,8 +168,9 @@ class FileManager(torrent: Torrent, folder: String)
     case msg @ FM.Read(idx, off, length) =>
       pieceStates(idx) match {
         case Disk =>
+          val totalOffset = idx * pieceSize + off
           requestManager ! Queue(sender, idx, off, length)
-          pieceWorkers(idx) ! msg
+          fileWorker ! FW.Read(idx, totalOffset, length)
           pieceStates(idx) = Fetching
         case Fetching =>
           requestManager ! Queue(sender, idx, off, length)
@@ -191,9 +192,11 @@ class FileManager(torrent: Torrent, folder: String)
         case Done =>
           log.debug(s"Piece at index $idx complete, inserting piece into total offset " +
             totalOffset)
+          pieceWorkers(idx) ! PoisonPill
           pieceStates(idx) = Done
           dataOption foreach { data =>
-            fileWorker ! FM.Write(idx, 0, ByteString.fromArray(data))
+            val totalOffset = idx * pieceSize
+            fileWorker ! FW.Write(idx, totalOffset, ByteString.fromArray(data))
             flushingPieces += (idx -> data)
             cachedPieces += (idx -> data)
           }
@@ -205,12 +208,12 @@ class FileManager(torrent: Torrent, folder: String)
         case _ =>
       }
 
-    case FM.ReadDone(idx, piece) =>
+    case FW.ReadDone(idx, piece) =>
       pieceStates(idx) = Disk
       cachedPieces += (idx -> piece)
       requestManager ! Fulfill(idx, piece)
 
-    case FM.WriteDone(idx) =>
+    case FW.WriteDone(idx) =>
       flushingPieces -= idx
       pieceStates(idx) = Disk
 

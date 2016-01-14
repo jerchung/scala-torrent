@@ -50,13 +50,12 @@ class ConnectingPeer(
   def receive = {
     case Tcp.Connected(remote, _) =>
       log.info(s"Connected to $remote")
-      (manager ? PeersManager.ConnectedPeer(sender, ip, port, peerId, InitHandshake, router))
-        .mapTo[ActorRef]
-        .foreach { context.watch }
+      val protocol = context.actorOf(TorrentProtocol.props(sender, Set()))
+      context.watch(protocol)
+      manager ! PeersManager.ConnectedPeer(protocol, ip, port, peerId, InitHandshake, router)
       // Don't stop self until peer stops because then the connection gets stopped
     case Terminated(peer) =>
       context.stop(self)
-    case _ =>
-      context.stop(self)
+    case _ => ()
   }
 }

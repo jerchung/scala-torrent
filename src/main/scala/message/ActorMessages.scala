@@ -5,7 +5,6 @@ import akka.util.ByteString
 import scala.annotation.tailrec
 import scala.collection.BitSet
 import java.net.InetSocketAddress
-import scalaj.http._
 import storrent.Constant
 import storrent.Convert._
 import storrent.peer.HandshakeState
@@ -15,7 +14,7 @@ import storrent.tracker.TrackerInfo
 // Tracker Client
 object TrackerM {
   case class Request(announce: String, trackerInfo: TrackerInfo)
-  case class Response(res: HttpResponse[Array[Byte]])
+  case class Response(res: ByteString)
 }
 
 // Torrent Client (TorrentM (TorrentMessage))
@@ -28,7 +27,7 @@ object PeerM {
   case class Connected(pConfig: PeerConfig)
   case class ReadyForPiece(peerHas: BitSet)
   case class Disconnected(id: ByteString, peerHas: BitSet, ip: String, port: Int)
-  case class ChokedOnPiece(index: Int)
+  case class PieceAborted(index: Int)
   case class DownloadPiece(index: Int, size: Int)
   case class Resume(index: Int)
   case class PieceAvailable(update: Either[Int, BitSet])

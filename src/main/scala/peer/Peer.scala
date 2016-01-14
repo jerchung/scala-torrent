@@ -1,8 +1,6 @@
 package storrent.peer
 
-import akka.actor.{ Actor, ActorRef, Props, Cancellable, ActorLogging }
-import akka.actor.PoisonPill
-import akka.actor.Stash
+import akka.actor._
 import akka.io.{ IO, Tcp }
 import akka.util.ByteString
 import akka.util.Timeout
@@ -18,22 +16,19 @@ import storrent.Convert._
 // import Peer.PeerConfig
 
 object Peer {
-  def props(pConfig: PeerConfig, connection: ActorRef, router: ActorRef): Props = {
-    Props(new Peer(pConfig, connection, router) with Peer.AppCake)
+  def props(pConfig: PeerConfig, protocol: ActorRef, router: ActorRef): Props = {
+    Props(new Peer(pConfig, protocol, router) with Peer.AppCake)
   }
 
   trait Cake { this: Peer =>
     def provider: Provider
     trait Provider {
-      def protocol(peer: ActorRef, connection: ActorRef): ActorRef
       def blockRequestor(protocol: ActorRef, index: Int, size: Int): ActorRef
     }
   }
 
   trait AppCake extends Cake { this: Peer =>
     override object provider extends Provider {
-      def protocol(peer: ActorRef, connection: ActorRef) =
-        context.actorOf(TorrentProtocol.props(peer, connection))
       def blockRequestor(protocol: ActorRef, index: Int, size: Int) =
         context.actorOf(BlockRequestor.props(protocol, index, size))
     }
@@ -43,7 +38,7 @@ object Peer {
 // One of these actors per peer
 // router actorRef is a PeerRouter actor which will forward the messages
 // to the correct actors
-class Peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef)
+class Peer(pConfig: PeerConfig, protocol: ActorRef, router: ActorRef)
   extends Actor with ActorLogging {
   this: Peer.Cake =>
 
@@ -51,7 +46,6 @@ class Peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef)
   import BlockRequestor.Message.{ Resume, BlockDoneAndRequestNext }
 
   val MaxRequestPipeline = 5
-  val protocol = provider.protocol(self, connection)
   val scheduler = context.system.scheduler
   // Reference for a BlockRequestor
   var requestor: Option[ActorRef] = None
@@ -81,20 +75,37 @@ class Peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef)
   // State depends on if the client connected to the peer or the peer is connecting
   // through the tracker
   override def preStart(): Unit = {
+    protocol ! TorrentProtocol.Subscribe(self)
+    context.watch(protocol)
+    handshakeStateCheck()
+  }
+
+  override def postStop(): Unit = {
+    keepAliveTask.foreach { _.cancel() }
+    // Kill the protocol actor upon death
+    protocol ! PoisonPill
+
+    for {
+      id <- peerId
+    } {
+      router ! PeerM.Disconnected(id, peerHas, ip, port)
+    }
+  }
+
+  def handshakeStateCheck(): Unit = {
     pConfig.handshake match {
       case InitHandshake =>
         protocol ! BT.Handshake(infoHash, ownId)
         context.become(handshake(initiatedHandshake))
+      case ReceivedHandshake =>
+        protocol ! BT.Handshake(infoHash, ownId)
+        context.become(acceptBitfield)
       case WaitHandshake =>
         context.become(handshake(waitingForHandshake))
     }
   }
 
-  override def postStop(): Unit = {
-    peerId foreach { id => router ! PeerM.Disconnected(id, peerHas, ip, port) }
-  }
-
-  def handshake(handshakeState: Receive): Receive = handshakeState orElse handshakeFail
+  def handshake(handshakeState: Receive): Receive = handshakeState orElse receiveTerminated orElse handshakeFail
 
   def handshakeFail: Receive = {
     case msg =>
@@ -125,7 +136,7 @@ class Peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef)
    * Can also accept messages from client, but then stays in acceptBitfield
    * state
    */
-  def acceptBitfield: Receive = receiveMessage orElse {
+  def acceptBitfield: Receive = receiveMessage orElse receiveTerminated orElse {
     case BT.BitfieldR(bitfield) =>
       peerHas |= bitfield
       seedCheck(peerHas)
@@ -140,7 +151,7 @@ class Peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef)
   // Default receive behavior for messages meant to be forwarded to peer
   def receiveMessage: Receive = {
     case m: BT.Message =>
-      // log.debug(peerLog(s"Handling message $m"))
+      log.debug(peerLog(s"Handling message $m"))
       // Don't need to send KeepAlive message if already sending another message
       keepAliveTask.foreach { _.cancel }
       handleMessage(m)
@@ -150,7 +161,11 @@ class Peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef)
   // Default receive behavior for messages from protocol
   def receiveReply: Receive = {
     case r: BT.Reply =>
-      // log.debug(peerLog(s"Received reply $r"))
+      val replyStr = r match {
+        case BT.PieceR(idx, offset, _) => s"PieceR($idx, $offset, ...)"
+        case _ => r.toString
+      }
+      log.debug(peerLog(s"Received reply $replyStr"))
       keepAlive = true
       handleReply(r)
   }
@@ -180,7 +195,12 @@ class Peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef)
       router ! PeerM.ReadyForPiece(peerHas)
 
     case _ => // Do Nothing
+  }
 
+  def receiveTerminated: Receive = {
+    case Terminated(s) if s == protocol =>
+      log.debug("Received terminated from protocol, stopping self")
+      context.stop(self)
   }
 
   /*
@@ -193,7 +213,7 @@ class Peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef)
     choke orElse receive
   }
   // Composition of all the default receive behaviors
-  def receive = receiveMessage orElse receiveReply orElse receiveOther
+  def receive = receiveMessage orElse receiveReply orElse receiveTerminated orElse receiveOther
 
   /*
   * Update state according to message and then send message along to protocol
@@ -204,6 +224,8 @@ class Peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef)
     message match {
       case BT.Choke => amChoking = true
       case BT.Unchoke => amChoking = false
+      case BT.NotInterested if isSeed =>
+        shouldSend = false
       case BT.NotInterested =>
         log.debug(peerLog(s"Not interested anymore $peerHas"))
         amInterested = false
@@ -251,8 +273,7 @@ class Peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef)
 
       // A part of piece came in due to a request
       case BT.PieceR(idx, off, block) =>
-        log.debug(peerLog(s"Received block at piece index $idx offset $off"))
-        peerId foreach { pid => router ! PeerM.Downloaded(pid, block.length) }
+        peerId foreach { pid => router ! PeerM.Downloaded(pid, block.length)  }
         router ! FM.Write(idx, off, block)
         requestor foreach { _ ! BlockDoneAndRequestNext(off + block.length) }
 
@@ -268,7 +289,7 @@ class Peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef)
 
   def endCurrentPieceDownload(): Unit = {
     if (currentPieceIndex >= 0) {
-      router ! PeerM.ChokedOnPiece(currentPieceIndex)
+      router ! PeerM.PieceAborted(currentPieceIndex)
     }
     currentPieceIndex = -1
     requestor foreach { _ ! PoisonPill }
@@ -293,7 +314,7 @@ class Peer(pConfig: PeerConfig, connection: ActorRef, router: ActorRef)
         scheduler.scheduleOnce(3 minutes) { checkHeartbeat() }
       } else {
         router ! "No KeepAlive"
-        context stop self
+        context.stop(self)
       }
     }
 

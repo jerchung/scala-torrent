@@ -5,6 +5,7 @@ import akka.util.ByteString
 sealed trait HandshakeState
 case object InitHandshake extends HandshakeState
 case object WaitHandshake extends HandshakeState
+case object ReceivedHandshake extends HandshakeState
 
 // This case class encapsulates the information needed to create a peer actor
 case class PeerConfig(

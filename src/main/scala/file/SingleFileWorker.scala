@@ -47,24 +47,15 @@ class SingleFileWorker(
   val fc = raf.getChannel
 
   def receive = {
-
-    // We just return the entire piece
-    case FM.Read(idx, _, _) =>
-      val totalOffset = idx * pieceSize
-      sender ! FM.ReadDone(idx, read(totalOffset, pieceSize min (totalSize - totalOffset)))
-
-    case FM.Write(idx, off, block) =>
-      val written = write(off, block)
-      sender ! FM.WriteDone(idx)
-
     // The offset in this is message is the offset within the file this actor
     // is referencing
-    case FW.Read(offset, length, part) =>
-      val block = read(offset, length)
-      sender ! FW.ReadDone(part, block)
+    case FW.Read(idx, totalOffset, length) =>
+      val block = read(totalOffset, length)
+      sender ! FW.ReadDone(idx, block)
 
-    case FW.Write(idx, off, block) =>
-      val written = write(off, block)
+    case FW.Write(idx, totalOffset, block) =>
+      val written = write(totalOffset, block)
+      // TODO - RETRY LOGIC
       sender ! FW.WriteDone(idx)
 
   }

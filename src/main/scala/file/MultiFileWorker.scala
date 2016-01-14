@@ -1,9 +1,11 @@
 package storrent.file
 
-import akka.actor.Actor
+import akka.actor.{ Actor, ActorLogging }
 import akka.actor.ActorRef
 import akka.actor.Props
+import akka.pattern.ask
 import akka.util.ByteString
+import akka.util.Timeout
 import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -14,7 +16,9 @@ import storrent.file.{ FileWorker => FW }
 import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.concurrent._
+import scala.concurrent.duration._
 import storrent.core.Core._
+import scala.util.{ Failure, Success }
 
 object MultiFileWorker {
   def props(
@@ -28,7 +32,6 @@ object MultiFileWorker {
   trait Cake { this: MultiFileWorker =>
     def provider: Provider
     trait Provider {
-      def tallyReads(fileManager: ActorRef, numExpected: Int, index: Int): ActorRef
       def tallyWrites(fileManager: ActorRef, writers: Set[ActorRef]): ActorRef
       def singleFileWorker(path: String, pieceSize: Int, fileSize: Int): ActorRef
     }
@@ -36,8 +39,6 @@ object MultiFileWorker {
 
   trait AppCake extends Cake { this: MultiFileWorker =>
     override object provider extends Provider {
-      def tallyReads(fileManager: ActorRef, numExpected: Int, index: Int) =
-        context.actorOf(TallyReads.props(fileManager, numExpected, index))
       def tallyWrites(fileManager: ActorRef, writers: Set[ActorRef]) =
         context.actorOf(TallyWrites.props(fileManager, writers))
       def singleFileWorker(path: String, pieceSize: Int, fileSize: Int) =
@@ -51,49 +52,6 @@ object MultiFileWorker {
   // whole
   case class WorkerJob(worker: ActorRef, offset: Int, length: Int, part: Int) {
     def tell(msg: Any, sender: ActorRef): Unit = { worker.tell(msg, sender) }
-  }
-
-  // When reading multiple parts of multiple files, need to combine the
-  // responses from the multiple SingleFileWorkers into one response to send
-  // back to FileManager
-  object TallyReads {
-    def props(
-        fileManager: ActorRef,
-        numExpected: Int,
-        index: Int): Props = {
-      Props(new TallyReads(fileManager, numExpected, index))
-    }
-  }
-
-  class TallyReads(
-      fileManager: ActorRef,
-      numExpected: Int,
-      index: Int)
-      extends Actor {
-
-    var dones = List[FW.ReadDone]()
-
-    def receive = tally(numExpected)
-
-    def tally(left: Int): Receive = {
-      // the index argument in ReadDone is the index of the piece this block
-      // is a part of, not the index of the block itself within the piece
-      case d: FW.ReadDone =>
-        dones = d :: dones
-        val rem = left - 1
-        if (rem == 0) {
-          val combinedBlock = dones.sortBy { case FW.ReadDone(part, _) => part }
-                                  .map { case FW.ReadDone(_, b) => b}
-                                  .foldLeft(mutable.ArrayBuffer[Byte]()) { (buf, block) =>
-                                    buf ++= block
-                                  }.toArray
-          fileManager ! FM.ReadDone(index, combinedBlock)
-          context.stop(self)
-        } else {
-          context.become(tally(rem))
-        }
-    }
-
   }
 
   object TallyWrites {
@@ -114,7 +72,7 @@ object MultiFileWorker {
       case FW.WriteDone(index) =>
         val remaining = writers - sender
         if (remaining.isEmpty) {
-          fileManager ! FM.WriteDone(index)
+          fileManager ! FW.WriteDone(index)
           context.stop(self)
         } else {
           context.become(tally(remaining))
@@ -128,10 +86,12 @@ object MultiFileWorker {
  * Parent MUST be FileManager
  */
 class MultiFileWorker(files: List[TorrentFile], pieceSize: Int, folder: String, totalSize: Int)
-  extends Actor { this: MultiFileWorker.Cake with Parent =>
+  extends Actor with ActorLogging { this: MultiFileWorker.Cake with Parent =>
 
   import MultiFileWorker._
   import context.dispatcher
+
+  implicit val timeout = Timeout(1.minute)
 
   val singleFileWorkers: List[WrappedFileWorker] = files map { f =>
     WrappedFileWorker(
@@ -144,17 +104,22 @@ class MultiFileWorker(files: List[TorrentFile], pieceSize: Int, folder: String, 
   // Msgs sent from fileManager, forwarded to SingleFileWorker
   def receive = {
     // Actually reads data from disk
-    case FM.Read(index, offset, length) =>
-      val totalOffset = index * pieceSize + offset
+    case FW.Read(index, totalOffset, length) =>
+      val manager = sender
       val workerJobs = affectedFileJobs(totalOffset, length)
-      val tallyReads = provider.tallyReads(parent, workerJobs.size, index)
-      workerJobs foreach { case WorkerJob(worker, off, len, part) =>
-        worker.tell(FW.Read(off, len, part), tallyReads)
+      val blocksF = workerJobs.map { case WorkerJob(worker, off, len, part) =>
+        (worker ? FW.Read(off, len, part)).mapTo[FW.ReadDone].map { rd => rd.block }
+      }
+      val combinedBlockF = Future.sequence(blocksF).map { blocks =>
+        blocks.foldLeft(mutable.ArrayBuffer[Byte]()) { (buf, block) => buf ++= block }.toArray
+      }
+      combinedBlockF.onComplete {
+        case Success(block) => manager ! FW.ReadDone(index, block)
+        case Failure(e) => log.debug(s"Could not read piece $index")
       }
 
     // Actually flushes data to disk
-    case FM.Write(index, offset, block) =>
-      val totalOffset = index * pieceSize + offset
+    case FW.Write(index, totalOffset, block) =>
       val workerJobs = affectedFileJobs(totalOffset, block.size)
       val workers = workerJobs.map { _.worker }.toSet
       val tallyWrites = provider.tallyWrites(parent, workers)
