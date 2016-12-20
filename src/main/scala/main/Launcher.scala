@@ -1,10 +1,8 @@
 package storrent.main
 
 import scala.App
-
 import akka.actor.ActorSystem
-import storrent.core.TorrentClient
-import storrent.core.Config
+import com.github.jerchung.submarine.core.base.{Config, TorrentClient}
 
 object Launcher extends App {
   val torrentFile = args(0)

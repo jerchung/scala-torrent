@@ -48,7 +48,7 @@ class PeerSpec(_sys: ActorSystem)
     )
   }
 
-  // Set up for a peer actor in the normal receive state
+  // Set up for a com.github.jerchung.submarine.core.peer actor in the normal receive com.github.jerchung.submarine.core.state
   trait ReceivePeerActor extends PeerActor {
     connection.ignoreMsg({case m: BT.Handshake => true})
     val peer = TestActorRef[Peer](peerProps)
@@ -56,7 +56,7 @@ class PeerSpec(_sys: ActorSystem)
     real.context.become(real.receive)
   }
 
-  // Set up for peer in initiatedHandshake state
+  // Set up for com.github.jerchung.submarine.core.peer in initiatedHandshake com.github.jerchung.submarine.core.state
   trait InitHandshakePeerActor extends PeerActor {
     connection.ignoreMsg({case m: BT.Handshake => true})
     val peer = TestActorRef[Peer](peerProps)
@@ -66,7 +66,7 @@ class PeerSpec(_sys: ActorSystem)
 
   describe("A Peer Actor") {
 
-    describe("when in a normal receive loop state") {
+    describe("when in a normal receive loop com.github.jerchung.submarine.core.state") {
 
       describe("when receiving messages from TorrentClient Actor") {
 
@@ -263,7 +263,7 @@ class PeerSpec(_sys: ActorSystem)
       }
     }
 
-    describe("when in initiatedHandshake state") {
+    describe("when in initiatedHandshake com.github.jerchung.submarine.core.state") {
 
       describe("when receiving a valid Handshake") {
 

@@ -1,6 +1,6 @@
 name :="torrent"
 
-scalaVersion in ThisBuild :="2.10.4"
+scalaVersion in ThisBuild :="2.11.8"
 
 version :="1.0"
 
@@ -13,16 +13,14 @@ resolvers ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "com.typesafe.akka" %% "akka-actor" % "2.2.3",
-  "com.twitter" %% "util-collection" % "6.3.6",
-  "com.github.nscala-time" %% "nscala-time" % "0.6.0",
-  "org.scalaj" %% "scalaj-http" % "1.1.4",
+  "com.typesafe.akka" %% "akka-actor" % "2.4.14",
+  "com.typesafe.akka" %% "akka-http-core" % "10.0.0",
+  "com.typesafe.akka" %% "akka-http" % "10.0.0",
+  "com.twitter" %% "util-collection" % "6.35.0",
   "com.github.scopt" %% "scopt" % "3.3.0"
 )
 
 libraryDependencies ++= Seq(
-  "org.scalatest" % "scalatest_2.10" % "2.0" % "test",
-  "com.typesafe.akka" %% "akka-testkit" % "2.2.3" % "test",
-  "org.mockito" % "mockito-core" % "1.9.5" % "test",
-  "org.specs2" %% "specs2" % "2.3.7" % "test"
+  "org.scalatest" %% "scalatest" % "2.2.6" % "test",
+  "com.typesafe.akka" %% "akka-testkit" % "2.4.8" % "test"
 )

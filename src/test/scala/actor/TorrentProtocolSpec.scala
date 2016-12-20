@@ -41,7 +41,7 @@ class TorrentProtocolSpec(_sys: ActorSystem)
 
   "A TorrentProtocol Actor" when {
 
-    "receiving valid Bytestring messages from a peer" should {
+    "receiving valid Bytestring messages from a com.github.jerchung.submarine.core.peer" should {
 
       "translate to KeepAlive" in { f =>
         val keepAlive = ByteString(0, 0, 0, 0)
@@ -117,7 +117,7 @@ class TorrentProtocolSpec(_sys: ActorSystem)
       }
     }
 
-  "Sending a TCP Wire Message to a peer" should {
+  "Sending a TCP Wire Message to a com.github.jerchung.submarine.core.peer" should {
 
     "correctly translate KeepAlive to ByteString" in { f =>
       f.protocol ! BT.KeepAlive
