@@ -73,15 +73,51 @@ object Peer {
     case class Interested(isInterested: Boolean) extends Message
     case class IHave(pieces: BitSet) extends Message
     case class DownloadPiece(index: Int,
-                             pieceSize: Int,
-                             blockSize: Int,
-                             pieceHash: IndexedSeq[Byte]) extends Message
+                             piecePipeline: ActorRef) extends Message
     case class Choke(amChoking: Boolean) extends Message
     case class PieceBlock(index: Int, offset: Int, data: ByteString) extends Message
     case object CheckKeepAlive extends Message
   }
 
-  case class PiecePipelineWrapper(index: Int, pipeline: ActorRef)
+  class PieceRequests(val index: Int,
+                      peer: ActorRef,
+                      protocol: ActorRef,
+                      pipeline: ActorRef) {
+
+    // We want all sender references to protocol / pipeline to be from the peer
+    implicit val sender: ActorRef = peer
+
+    // (offset, length)
+    private var inFlight: Set[(Int, Int)] = Set()
+
+    def cancel(cancel: TorrentProtocol.Send.Cancel): Unit = {
+      if (cancel.index == index && inFlight.contains((cancel.offset, cancel.length))) {
+        protocol ! cancel
+        inFlight -= (cancel.offset -> cancel.length)
+      }
+    }
+
+    def piece(piece: TorrentProtocol.Reply.Piece): Unit = {
+      if (piece.index == index && inFlight.contains((piece.offset, piece.block.length))) {
+        pipeline ! piece
+        inFlight -= (piece.offset -> piece.block.length)
+      }
+    }
+
+    def request(request: TorrentProtocol.Send.Request): Unit = {
+      if (request.index == index) {
+        inFlight += (request.offset -> request.length)
+      }
+    }
+
+    def cancelAll(): Unit = {
+      inFlight.foreach { case (offset, length) =>
+        protocol ! TorrentProtocol.Send.Cancel(index, offset, length)
+      }
+
+      inFlight = Set()
+    }
+  }
 }
 
 object HandshakeInitPeer {
@@ -131,8 +167,7 @@ abstract class Peer(args: Peer.Args) extends Actor with ActorLogging {
 
   val torrentEvents: EventStream = args.torrentEvents
 
-  // In charge of keeping track of state for requesting successive chunks from the Peer
-  var pieceBuilder: Option[Peer.PiecePipelineWrapper] = None
+  var pieceRequests: Option[Peer.PieceRequests] = None
 
   var peerId: Option[ByteString] = args.peerId
   val ip: String                 = args.ip
@@ -222,20 +257,18 @@ abstract class Peer(args: Peer.Args) extends Actor with ActorLogging {
 
   // Default receive behavior for messages sent from other actors
   def receivePeerMessage: Receive = {
-    case Peer.Message.DownloadPiece(index, pieceSize, blockSize, pieceHash) =>
-      val pipeline: ActorRef = context.actorOf(PiecePipeline.props(PiecePipeline.Args(
-        index,
-        pieceSize,
-        blockSize,
-        MaxRequestPipeline,
-        pieceHash,
-        self,
-        protocol
-      )))
-
-      pieceBuilder = Some(Peer.PiecePipelineWrapper(index, pipeline))
+    case Peer.Message.DownloadPiece(index, piecePipeline) =>
+      // TODO(jerry) - Fix case where we're already downloading something
+      piecePipeline ! PiecePipeline.Attach(self)
+      pieceRequests = Some(new Peer.PieceRequests(index, self, protocol, piecePipeline))
 
     case Peer.Message.IHave(pieces) =>
+      // Get notified that our current piece download finished, can now request another one (if applicable)
+      if (pieceRequests.isDefined && pieces.contains(pieceRequests.get.index)) {
+        pieceRequests = None
+        requestNextPieceIfApplicable()
+      }
+
       if (bitfieldSent) {
         val extraIndexes: BitSet = pieces &~ iHave
 
@@ -312,7 +345,12 @@ abstract class Peer(args: Peer.Args) extends Actor with ActorLogging {
       case Send.Bitfield(bitfield, _) => iHave = bitfield
       case Send.Interested if peerInterested => shouldSend = false
       case Send.Interested => amInterested = true
-      case Send.Request(_, _, _) if peerChoking => shouldSend = false
+      case req: Send.Request =>
+        if (peerChoking)
+          shouldSend = false
+
+        pieceRequests.foreach { _.request(req) }
+
       case _ =>
     }
     if (shouldSend) { protocol ! message }
@@ -352,11 +390,11 @@ abstract class Peer(args: Peer.Args) extends Actor with ActorLogging {
         }
 
       // A part of piece came in due to a request
-      case pieceBlock: Reply.Piece =>
-        pieceBuilder.foreach { p =>
-          if (p.index == pieceBlock.index) {
-            p.pipeline ! pieceBlock
-            peerPublish(Peer.Downloaded(pieceBlock.block.length))
+      case piece: Reply.Piece =>
+        pieceRequests.foreach { pr =>
+          if (pr.index == piece.index) {
+            pr.piece(piece)
+            peerPublish(Peer.Downloaded(piece.block.length))
           }
         }
 

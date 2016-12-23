@@ -1,10 +1,11 @@
 package com.github.jerchung.submarine.core.state
 
-import akka.actor.{Actor, Props}
+import akka.actor.{Actor, ActorRef, Props}
 import akka.event.EventStream
 import akka.util.ByteString
 import com.github.jerchung.submarine.core.base.Torrent
 import com.github.jerchung.submarine.core.peer.Peer
+import com.github.jerchung.submarine.core.implicits.Convert._
 
 object TorrentState {
   def props(args: Args): Props = {
@@ -18,26 +19,48 @@ object TorrentState {
                   torrentEvents: EventStream)
 
   object Peer {
-    case class Metadata(id: ByteString,
+    case class Metadata(id: String,
                         ip: String,
-                        port: Int,
-                        )
+                        port: Int)
+  }
+
+  object Aggregated {
+    case class Metadata(totalDownloaded: Int,
+                        totalUploaded: Int,
+                        totalSize: Int)
+  }
+
+  sealed trait Request
+  object Request {
+    case object CurrentState extends Request
+  }
+
+  sealed trait Response
+  object Response {
+    case class CurrentState(aggregated: Aggregated.Metadata,
+                            peers: Seq[Peer.Metadata])
   }
 }
 
 class TorrentState(args: TorrentState.Args) extends Actor {
 
-  var peers: Map
+  var peers: Map[ActorRef, TorrentState.Peer.Metadata] = Map()
 
   override def preStart(): Unit = {
     args.torrentEvents.subscribe(self, classOf[TorrentState.Relevant])
   }
 
   def receive: Receive = {
-    case Peer.Announce(_, publish) =>
+    case Peer.Announce(peer, publish) =>
       publish match {
-        case Peer.Connected(args) =>
+        case Peer.Connected(peerArgs) =>
+          val (peerId, ip, port) = (peerArgs.peerId.getOrElse(ByteString()).toChars, peerArgs.ip, peerArgs.port)
+          val peerMetadata = TorrentState.Peer.Metadata(peerId, ip, port)
 
+          peers += (peer -> peerMetadata)
+
+        case _: Peer.Disconnected =>
+          peers -= peer
       }
   }
 

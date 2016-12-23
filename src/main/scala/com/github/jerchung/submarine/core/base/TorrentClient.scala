@@ -5,7 +5,7 @@ import akka.event.EventStream
 import akka.util.ByteString
 import com.github.jerchung.submarine.core.bencode.Bencode
 import com.github.jerchung.submarine.core.peer.{ConnectedPeers, ConnectingPeer, Peer, PeerServer}
-import com.github.jerchung.submarine.core.piece.Pieces
+import com.github.jerchung.submarine.core.piece.{PieceDispatch, Pieces}
 import com.github.jerchung.submarine.core.setting.Constant
 import com.github.jerchung.submarine.core.tracker.Tracker
 

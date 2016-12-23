@@ -1,11 +1,11 @@
-package com.github.jerchung.submarine.core.base
+package com.github.jerchung.submarine.core.piece
 
 import akka.actor.{Actor, ActorLogging, ActorRef, Props}
-import Core.{AppParent, MessageBus, Parent}
 import akka.event.EventStream
+import com.github.jerchung.submarine.core.base.Core.{AppParent, MessageBus, Parent}
+import com.github.jerchung.submarine.core.base.{Core, Torrent}
 import com.github.jerchung.submarine.core.peer.Peer
 import com.github.jerchung.submarine.core.setting.Constant
-import com.github.jerchung.submarine.core.state.TorrentState
 
 import scala.collection.BitSet
 import scala.util.Random
@@ -37,6 +37,7 @@ class PieceDispatch(args: PieceDispatch.Args)
     extends Actor with ActorLogging { this: Parent =>
 
   val RarePieceJitter = 20
+  val HighPriorityChance = 0.4f
 
   val numPieces: Int = args.torrent.numPieces
   val pieceSize: Int = args.torrent.pieceSize
@@ -46,13 +47,14 @@ class PieceDispatch(args: PieceDispatch.Args)
   var pieceFrequencies: Map[Int, Int] = (0 until numPieces).map(index => index -> 0).toMap
 
   var completedPieces = BitSet()
-  var requestedPieces = BitSet()
+  var highPriorityPieces = BitSet()
 
   override def preStart(): Unit = {
     args.torrentEvents.subscribe(self, classOf[Peer.Announce])
+    args.torrentEvents.subscribe(self, classOf[PiecePipeline.Announce])
   }
 
-  def receive: Receive = handlePeerMessages
+  def receive: Receive = handlePeerMessages orElse handlePiecePipelineMessages
 
   def handlePeerMessages: Receive = {
     case Peer.Announce(peer, publish) =>
@@ -97,6 +99,11 @@ class PieceDispatch(args: PieceDispatch.Args)
           requestedPieces -= index
 
         case Peer.IsReady(peerHas) =>
+          val highPriIntersect = highPriorityPieces & peerHas
+          if (highPriIntersect.nonEmpty && Random.nextFloat < HighPriorityChance) {
+
+          }
+
           val possibles = peerHas &~ (completedPieces | requestedPieces)
 
           val rarePieces: Array[Int] = possibles
@@ -126,5 +133,18 @@ class PieceDispatch(args: PieceDispatch.Args)
 
         case _ => ()
       }
+  }
+
+  def handlePiecePipelineMessages: Receive = {
+    case PiecePipeline.Done(index, _) =>
+      completedPieces += index
+      args.torrentEvents.publish(Peer.Message.IHave(completedPieces))
+
+    case PiecePipeline.Priority(index, isHigh) =>
+      if (isHigh)
+        highPriorityPieces += index
+      else
+        highPriorityPieces -= index
+
   }
 }
