@@ -1,10 +1,9 @@
 package com.github.jerchung.submarine.core.protocol
 
-import akka.actor.{Actor, ActorLogging, ActorRef, Props}
+import akka.actor.{Actor, ActorLogging, ActorRef, Props, Terminated}
 import akka.io.Tcp
 import akka.util.ByteString
 import com.github.jerchung.submarine.core.base.Core
-import com.github.jerchung.submarine.core.behavior.PubSub
 import com.github.jerchung.submarine.core.implicits.Convert._
 import com.github.jerchung.submarine.core.setting.Constant
 
@@ -16,14 +15,13 @@ object TorrentProtocol {
     Props(new TorrentProtocol(args))
   }
 
-  case class Args(peer: ActorRef,
-                  connection: ActorRef)
+  case class Args(connection: ActorRef)
 
-  trait Provider extends Core.Cake#Provider {
+  trait Provider {
     def torrentProtocol(args: Args): ActorRef
   }
 
-  trait AppProvider extends Provider {
+  trait AppProvider extends Provider { this: Core.AppProvider =>
     override def torrentProtocol(args: Args): ActorRef =
       context.actorOf(TorrentProtocol.props(args))
   }
@@ -153,10 +151,9 @@ object TorrentProtocol {
     case class Invalid(data: Option[ByteString]) extends Reply // Invalid ByteString from com.github.jerchung.submarine.core.peer
   }
 
-  case object Ack extends Tcp.Event
-
-  case class Subscribe(classifier: Class[Reply])
-  case class Unsubscribe(classifier: Class[Reply])
+  object Command {
+    case class SetPeer(peer: ActorRef)
+  }
 }
 
 /**
@@ -167,23 +164,34 @@ class TorrentProtocol(args: TorrentProtocol.Args) extends Actor with ActorLoggin
 
   import TorrentProtocol.{Reply, Send}
 
-  val peer = args.peer
-  val connection = args.connection
+  var peer: Option[ActorRef] = None
+  val connection: ActorRef = args.connection
 
   override def preStart(): Unit = {
-    connection ! Tcp.Register(self, keepOpenOnPeerClosed = true)
+    context.watch(connection)
   }
 
-  override def postRestart(reason: Throwable): Unit = {}
+  /**
+    * The peer may change through the lifetime of this actor, but when first initialized, need to wait for a peer to
+    * listen before receiving messages from the connection
+    */
+  def initialWaitForPeer: Receive = {
+    case TorrentProtocol.Command.SetPeer(_peer) =>
+      peer = Some(_peer)
+      context.become(handle(ByteString.empty))
+      connection ! Tcp.Register(self, keepOpenOnPeerClosed = true)
+  }
 
-  // TODO - Figure out what to do upon connection close
-  def receive: Receive = handle(ByteString.empty)
+  def receive: Receive = initialWaitForPeer
 
   // TODO - Figure out Handshake / bitfield ACK
   def handle(remaining: ByteString): Receive = {
     case msg: Send => handleMessage(msg)
     case Tcp.Received(data) => handleReply(remaining ++ data)
-
+    case Terminated(actor) if actor == connection =>
+      context.stop(self)
+    case TorrentProtocol.Command.SetPeer(_peer) =>
+      peer = Some(_peer)
     case m =>
       log.warning(s"TorrentProtocol Received unsupported message $m")
   }
@@ -200,7 +208,12 @@ class TorrentProtocol(args: TorrentProtocol.Args) extends Actor with ActorLoggin
   // ByteStrings are implicitly converted to Ints / Strings when needed
   def handleReply(data: ByteString): Unit = {
     val (reply, remaining) = parseReply(data)
-    reply.foreach { r => peer ! r }
+    for {
+      r <- reply
+      p <- peer
+    } {
+      p ! r
+    }
     context.become(handle(remaining))
   } 
 

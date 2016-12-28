@@ -1,6 +1,6 @@
 package com.github.jerchung.submarine.core.base
 
-import akka.actor.{Actor, ActorRef, Scheduler}
+import akka.actor.{Actor, ActorContext, ActorRef, Scheduler}
 import akka.event.EventStream
 import akka.http.scaladsl.{Http, HttpExt}
 import akka.io.{IO, Tcp}
@@ -12,27 +12,15 @@ import akka.io.{IO, Tcp}
  */
 
 object Core {
-  trait Cake { this: Actor =>
-    lazy val _c = context
 
-    trait Provider {
-      lazy val context = _c
-    }
-  }
+  class AppProvider(val context: ActorContext)
 
-  trait SchedulerProvider extends Core.Cake#Provider {
+  trait SchedulerService { this: Actor =>
     def scheduler: Scheduler
   }
 
-  trait AppSchedulerProvider extends SchedulerProvider {
-    override def scheduler: Scheduler = context.system.scheduler
-  }
-
-  trait Parent { this: Actor =>
-    def parent: ActorRef
-  }
-  trait AppParent extends Parent { this: Actor =>
-    val parent = context.parent
+  trait AppSchedulerService extends SchedulerService { this: Actor =>
+    val scheduler = context.system.scheduler
   }
 
   trait TcpService { this: Actor =>
@@ -50,9 +38,5 @@ object Core {
 
   trait AppHttpService extends HttpService { this: Actor =>
     val http = Http(context.system)
-  }
-
-  trait MessageBus {
-    def torrentEvents: EventStream
   }
 }

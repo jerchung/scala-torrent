@@ -1,11 +1,10 @@
 package com.github.jerchung.submarine.core.persist
 
 import java.io.{File, IOException, RandomAccessFile}
-import java.util.concurrent.locks.ReentrantLock
 
 import com.github.jerchung.submarine.core.base.Torrent
 
-object SubmarineFile {
+object FileReaderWriter {
   trait Provider {
     def singleFile(path: String, size: Int): SingleFile
     def multiFile(torrentFiles: List[Torrent.File], rootFolder: String, size: Int): MultiFile
@@ -23,13 +22,13 @@ object SubmarineFile {
   }
 }
 
-trait SubmarineFile {
+trait FileReaderWriter {
   def readBytes(offset: Int, length: Int, buffer: Array[Byte]): Int
   def writeBytes(offset: Int, data: Array[Byte]): Int
   def size: Int
 }
 
-class SingleFile(val path: String, val size: Int) extends SubmarineFile {
+class SingleFile(val path: String, val size: Int) extends FileReaderWriter {
   val raf: RandomAccessFile = new RandomAccessFile(path, "rw")
 
   override def readBytes(fileOffset: Int, length: Int, buffer: Array[Byte]): Int = {
@@ -64,7 +63,7 @@ class SingleFile(val path: String, val size: Int) extends SubmarineFile {
   }
 }
 
-class MultiFile(torrentFiles: List[Torrent.File], rootFolder: String, val size: Int) extends SubmarineFile {
+class MultiFile(torrentFiles: List[Torrent.File], rootFolder: String, val size: Int) extends FileReaderWriter {
   val files: List[SingleFile] = torrentFiles.map { f =>
     new SingleFile(rootFolder + File.separator + f.path, f.size)
   }

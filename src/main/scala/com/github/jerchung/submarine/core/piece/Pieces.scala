@@ -7,8 +7,7 @@ import akka.event.EventStream
 import akka.util.ByteString
 import com.github.jerchung.submarine.core.base.{Core, Torrent}
 import com.github.jerchung.submarine.core.peer.Peer
-import com.github.jerchung.submarine.core.persist.SubmarineFile
-import com.github.jerchung.submarine.core.util.FilePathUtil
+import com.github.jerchung.submarine.core.persist.FileReaderWriter
 import com.twitter.util.LruMap
 
 import scala.language.postfixOps
@@ -19,28 +18,26 @@ object Pieces {
   }
 
   case class Args(torrent: Torrent,
-                  rootFolder: String,
-                  name: String,
+                  path: String,
+                  cacheSize: Int,
+                  fileReaderWriter: FileReaderWriter,
                   torrentEvents: EventStream)
 
-  trait Provider extends Core.Cake#Provider {
-    def piecesPersist(args: Args): ActorRef
+  trait Provider {
+    def pieces(args: Args): ActorRef
   }
 
-  trait AppProvider extends Provider {
-    def piecesPersist(args: Args): ActorRef =
+  trait AppProvider extends Provider { this: Core.AppProvider =>
+    def pieces(args: Args): ActorRef =
       context.actorOf(Pieces.props(args))
   }
 
-  trait Cake {
-    this: Pieces =>
-    def provider: Provider
-
-    trait Provider extends SubmarineFile.Provider
+  trait Cake { this: Pieces =>
+    def provider: FileReaderWriter.Provider
   }
 
   trait AppCake extends Cake { this: Pieces =>
-    val provider = new Provider with SubmarineFile.AppProvider
+    val provider = new Core.AppProvider(context) with FileReaderWriter.AppProvider
   }
 
   def hashMatches(hash: IndexedSeq[Byte], piece: Array[Byte]): Boolean = {
@@ -52,8 +49,6 @@ object Pieces {
 class Pieces(args: Pieces.Args)
   extends Actor with ActorLogging { this: Pieces.Cake =>
 
-  val CacheSize = 10
-
   val torrent: Torrent = args.torrent
 
   // Important values
@@ -63,23 +58,14 @@ class Pieces(args: Pieces.Args)
 
   // Cache map for quick piece access (pieceIndex -> Piece)
   // is LRU since it's not feasible to store ALL pieces in memory
-  val cachedPieces = new LruMap[Int, Array[Byte]](CacheSize)
+  val cachedPieces = new LruMap[Int, Array[Byte]](args.cacheSize / pieceSize)
 
   // Buffered memory (SHARED) for everything.  Max bytes read at any point will be pieceSize
   val sharedBuffer: Array[Byte] = new Array[Byte](pieceSize)
 
-  // Actor that takes care of reading / writing from disk
-  val submarineFile: SubmarineFile = {
-    // Single file will write to a file of this path, multi file will write to a folder of this path
-    val path = FilePathUtil.pathJoin(args.rootFolder, args.name)
-    torrent.fileMode match {
-      case Torrent.FileMode.Single => provider.singleFile(path, totalSize)
-      case Torrent.FileMode.Multiple => provider.multiFile(torrent.files, path, totalSize)
-    }
-  }
-
   override def preStart(): Unit = {
     args.torrentEvents.subscribe(self, classOf[Peer.Announce])
+    args.torrentEvents.subscribe(self, classOf[PiecePipeline.Done])
   }
 
   def receive: Receive = handlePieceMessages
@@ -90,10 +76,10 @@ class Pieces(args: Pieces.Args)
         case Peer.RequestPiece(index, offset, length) if isWithin(index) =>
           if (cachedPieces.contains(index)) {
             peer ! Peer.Message.PieceBlock(index, offset, ByteString.fromArray(cachedPieces(index), offset, length))
-          } else if (isWithin(index)) {
+          } else {
             val pieceOffset = index * pieceSize
             val chunkLength = pieceSize.min(totalSize - pieceOffset)
-            val bytesRead = submarineFile.readBytes(pieceOffset, chunkLength, sharedBuffer)
+            val bytesRead = args.fileReaderWriter.readBytes(pieceOffset, chunkLength, sharedBuffer)
 
             val pieceCopy = sharedBuffer.slice(0, bytesRead)
 
@@ -102,14 +88,12 @@ class Pieces(args: Pieces.Args)
             cachedPieces.put(index, pieceCopy)
           }
 
-        case Peer.PieceDone(index, piece) if isWithin(index) =>
-          val pieceOffset = index * pieceSize
-
-          submarineFile.writeBytes(pieceOffset, piece)
-          cachedPieces.put(index, piece)
-
         case _ => ()
       }
+
+    case PiecePipeline.Done(index, piece) =>
+      val pieceOffset = index * pieceSize
+      args.fileReaderWriter.writeBytes(pieceOffset, piece)
   }
 
   private def isWithin(index: Int): Boolean = {

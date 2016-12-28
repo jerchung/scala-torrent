@@ -15,11 +15,11 @@ object ConnectedPeers {
 
   case class Args()
 
-  trait Provider extends Core.Cake#Provider {
+  trait Provider {
     def connectedPeers(args: Args): ActorRef
   }
 
-  trait AppProvider extends Provider {
+  trait AppProvider extends Provider { this: Core.AppProvider =>
     def connectedPeers(args: Args): ActorRef = context.actorOf(ConnectedPeers.props(args))
   }
 
@@ -58,13 +58,6 @@ class ConnectedPeers(args: ConnectedPeers.Args) extends Actor with ActorLogging 
 
   var seeds: Set[ActorRef] = Set()
 
-  override def preStart(): Unit = {
-    // Connected peers are immediately resumed (not like we pick up past connections or something)
-    args.resumeSync ! ResumeSync.Resumed
-
-    scheduleUnchoke(unchokeDelay, 0)
-  }
-
   def receive: Receive = handlePeerMessages
 
   def handlePeerMessages: Receive = {
@@ -79,7 +72,7 @@ class ConnectedPeers(args: ConnectedPeers.Args) extends Actor with ActorLogging 
             self ! ConnectedPeers.OldPeer(peer)
           }
 
-        case Peer.Disconnected(_, peerHas) =>
+        case Peer.Disconnected(_, _, peerHas) =>
           freshPeers -= sender
           peerStats -= sender
           currentUnchoked -= sender

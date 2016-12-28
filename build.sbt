@@ -17,10 +17,12 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-http-core" % "10.0.0",
   "com.typesafe.akka" %% "akka-http" % "10.0.0",
   "com.twitter" %% "util-collection" % "6.35.0",
-  "com.github.scopt" %% "scopt" % "3.3.0"
+  "com.github.scopt" %% "scopt" % "3.5.0",
+  "com.typesafe" % "config" % "1.3.1"
 )
 
 libraryDependencies ++= Seq(
-  "org.scalatest" %% "scalatest" % "2.2.6" % "test",
-  "com.typesafe.akka" %% "akka-testkit" % "2.4.8" % "test"
+  "org.scalatest" %% "scalatest" % "3.0.1" % "test",
+  "org.mockito" % "mockito-core" % "2.4.1" % "test",
+  "com.typesafe.akka" %% "akka-testkit" % "2.4.14" % "test"
 )

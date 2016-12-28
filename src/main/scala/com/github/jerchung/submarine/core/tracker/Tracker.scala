@@ -20,11 +20,11 @@ object Tracker {
 
   case class Args(torrentEvents: EventStream)
 
-  trait Provider extends Core.Cake#Provider {
+  trait Provider {
     def tracker(args: Args): ActorRef
   }
 
-  trait AppProvider extends Provider {
+  trait AppProvider extends Provider { this: Core.AppProvider =>
     def tracker(args: Args): ActorRef =
       context.actorOf(Tracker.props(args: Args))
   }
@@ -64,6 +64,8 @@ object Tracker {
 }
 
 class Tracker(args: Tracker.Args) extends Actor { this: HttpService =>
+
+  import context.dispatcher
 
   implicit val materializer = ActorMaterializer()
 
@@ -155,5 +157,4 @@ class Tracker(args: Tracker.Args) extends Actor { this: HttpService =>
 
   def requestUdp(announce: String, params: Map[String, String]): Unit = {
   }
-
 }

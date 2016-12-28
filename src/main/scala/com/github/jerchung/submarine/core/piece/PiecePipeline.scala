@@ -1,16 +1,25 @@
 package com.github.jerchung.submarine.core.piece
 
-import java.util.concurrent.TimeUnit
-
 import akka.actor.{Actor, ActorRef, Cancellable, Props}
 import akka.event.EventStream
+import com.github.jerchung.submarine.core.base.Core
+import com.github.jerchung.submarine.core.piece.PiecePipeline.RetryMetadata
 import com.github.jerchung.submarine.core.protocol.TorrentProtocol
 
 import scala.concurrent.duration.FiniteDuration
 
 object PiecePipeline {
   def props(args: Args): Props = {
-    Props(new PiecePipeline(args))
+    Props(new PiecePipeline(args) with Core.AppSchedulerService)
+  }
+
+  trait Provider {
+    def piecePipeline(args: Args): ActorRef
+  }
+
+  trait AppProvider extends Provider { this: Core.AppProvider =>
+    override def piecePipeline(args: Args): ActorRef =
+      context.actorOf(PiecePipeline.props(args))
   }
 
   case class Args(pieceIndex: Int,
@@ -18,6 +27,7 @@ object PiecePipeline {
                   blockSize: Int,
                   pieceHash: IndexedSeq[Byte],
                   maxPerPeer: Int,
+                  retryInterval: FiniteDuration,
                   torrentEvents: EventStream)
 
   case class Attach(peer: ActorRef)
@@ -28,12 +38,12 @@ object PiecePipeline {
   case class Invalid(index: Int) extends Announce
   case class Priority(index: Int, isHigh: Boolean) extends Announce
 
-  private case class RetryMetadata(triedPeers: Set[ActorRef], retryTask: Cancellable)
-  private case class Retry(offset: Int, length: Int)
+  case class RetryMetadata(triedPeers: Set[ActorRef], retryTask: Cancellable)
+  case class Retry(offset: Int, length: Int)
 }
 
-class PiecePipeline(args: PiecePipeline.Args) extends Actor {
-  val RetryInterval: FiniteDuration = FiniteDuration(30, TimeUnit.SECONDS)
+class PiecePipeline(args: PiecePipeline.Args) extends Actor { this: Core.SchedulerService =>
+  import context.dispatcher
 
   var isStarted = false
   var nextOffset = 0
@@ -60,15 +70,17 @@ class PiecePipeline(args: PiecePipeline.Args) extends Actor {
         args.torrentEvents.publish(PiecePipeline.Priority(index = args.pieceIndex, isHigh = true))
       }
 
+
     case TorrentProtocol.Reply.Piece(index, offset, block) if index == args.pieceIndex &&
                                                               peerActives.contains(sender) &&
                                                               retries.contains((offset, block.size)) =>
       isStarted = true
 
       // Cancel everything related to this current retry (it's done)
-      val retry = retries((offset, block.size))
-      retry.retryTask.cancel()
-      retry.triedPeers.foreach { _ ! TorrentProtocol.Send.Cancel(index, offset, block.size) }
+      retries.get((offset, block.size)).foreach { retry =>
+        retry.retryTask.cancel()
+        retry.triedPeers.foreach { _ ! TorrentProtocol.Send.Cancel(index, offset, block.size) }
+      }
       retries -= ((offset, block.size))
 
       // Check state of the data
@@ -77,8 +89,11 @@ class PiecePipeline(args: PiecePipeline.Args) extends Actor {
         case PieceData.Complete(_, piece) =>
           // We're DONE
           args.torrentEvents.publish(PiecePipeline.Done(index, piece))
+          endRetries()
           context.stop(self)
         case _: PieceData.Invalid =>
+          endRetries()
+
           // TODO(jerry) - Figure out invalid case (probably something to do with allPeers)
         case _: PieceData.Incomplete =>
           requestNextBlocks(sender, 1)
@@ -100,7 +115,7 @@ class PiecePipeline(args: PiecePipeline.Args) extends Actor {
     var n = 0
     while (n < numBlocks && nextOffset < args.pieceSize) {
       val blockSize = args.blockSize.min(args.pieceSize - nextOffset)
-      requestAndScheduleRetry(peer, nextOffset, blockSize, RetryInterval)
+      requestAndScheduleRetry(peer, nextOffset, blockSize, args.retryInterval)
       nextOffset += blockSize
       n += 1
     }
@@ -110,7 +125,8 @@ class PiecePipeline(args: PiecePipeline.Args) extends Actor {
 
   private def requestAndScheduleRetry(peer: ActorRef, offset: Int, length: Int, retryInterval: FiniteDuration): Unit = {
     peer ! TorrentProtocol.Send.Request(args.pieceIndex, offset, length)
-    val retryTask = context.system.scheduler.schedule(
+    // Schedule a retry message to be repeatedly sent until a piece chunk is returned
+    val retryTask = scheduler.schedule(
       retryInterval,
       retryInterval,
       self,
@@ -124,4 +140,14 @@ class PiecePipeline(args: PiecePipeline.Args) extends Actor {
     peerActives
       .collect { case (peer, count) if count < args.maxPerPeer => peer }
       .toSet
+
+  private def endRetries(): Unit = {
+    retries.foreach {
+      case ((offset, length), RetryMetadata(peers, retryTask)) =>
+        retryTask.cancel()
+        peers.foreach { _ ! TorrentProtocol.Send.Cancel(args.pieceIndex, offset, length)}
+    }
+
+    retries = Map()
+  }
 }
